@@ -5,6 +5,8 @@
  * CHANGELOG:
  * - 2025-03-11 03:16:11: (Schedulable Rules - Implementation) Initial implementation with parseTimeInterval, SchedulableRule interface, and SchedulableRulesManager class
  * - 2025-03-11 03:16:58: (Schedulable Rules - Implementation) Fixed TypeScript errors related to imports and type annotations
+ * - 2025-03-11 06:30:00: (Schedulable Rules - Persistence) Added persistence for rule execution times using VSCode global state
+ * - 2025-03-11 06:36:30: (Schedulable Rules - Async) Fixed async handling for non-awaited markRuleAsExecuted calls
  *
  * PURPOSE:
  * This file handles loading and management of time-based rule files (.clinerules-5m, etc.)
@@ -13,6 +15,9 @@
  * METHODS:
  * - parseTimeInterval(): Parses time intervals from filenames
  * - SchedulableRulesManager.constructor(): Initializes a new rules manager
+ * - SchedulableRulesManager.setContext(): Sets the VSCode extension context for state persistence
+ * - SchedulableRulesManager.loadExecutionTimes(): Loads execution times from global state
+ * - SchedulableRulesManager.saveExecutionTimes(): Saves execution times to global state
  * - SchedulableRulesManager.resetAllRules(): Resets all rule execution times
  * - SchedulableRulesManager.loadSchedulableRules(): Loads all schedulable rules from a directory
  * - SchedulableRulesManager.shouldExecuteRule(): Checks if a rule should be executed
@@ -23,6 +28,7 @@
 
 import * as path from "path"
 import * as fs from "fs/promises"
+import * as vscode from "vscode"
 import { logger } from "../../../utils/logging"
 
 /**
@@ -82,21 +88,129 @@ export function parseTimeInterval(timeStr: string): { interval: number; unit: st
  */
 export class SchedulableRulesManager {
 	private lastExecutionTimes: Map<string, number> = new Map()
+	private context: vscode.ExtensionContext | null = null
+	private outputChannel: vscode.OutputChannel | null = null
+	private readonly STORAGE_KEY = "schedulableRules.lastExecutionTimes"
 
 	/**
 	 * Create a new SchedulableRulesManager
 	 */
 	constructor() {
-		this.resetAllRules()
 		logger.info("SchedulableRulesManager initialized")
+	}
+
+	/**
+	 * Set the extension context for persistence
+	 * @param context - VSCode extension context
+	 */
+	public setContext(context: vscode.ExtensionContext): void {
+		this.context = context
+		this.loadExecutionTimes()
+		logger.debug("SchedulableRulesManager context set")
+		this.log("debug", "SchedulableRulesManager context set")
+	}
+
+	/**
+	 * Set the output channel for logging
+	 * @param outputChannel - VSCode output channel
+	 */
+	public setOutputChannel(outputChannel: vscode.OutputChannel): void {
+		this.outputChannel = outputChannel
+		this.log("info", "SchedulableRulesManager output channel set")
+	}
+
+	/**
+	 * Log a message to both the outputChannel (if available) and the logger
+	 * @param level - Log level
+	 * @param message - Message to log
+	 */
+	private log(level: "debug" | "info" | "warn" | "error", message: string): void {
+		// Add timestamp for better time tracking
+		const timestamp = new Date().toLocaleTimeString()
+		const formattedMessage = `[${timestamp}] [SchedulableRules] ${message}`
+
+		// Always show output channel when logging
+		if (this.outputChannel) {
+			this.outputChannel.appendLine(formattedMessage)
+
+			// Show the output panel for important messages
+			if (level === "info" || level === "warn" || level === "error") {
+				this.outputChannel.show(true)
+			}
+		}
+
+		// Also log to the regular logger for completeness
+		switch (level) {
+			case "debug":
+				logger.debug(message)
+				break
+			case "info":
+				logger.info(message)
+				break
+			case "warn":
+				logger.warn(message)
+				break
+			case "error":
+				logger.error(message)
+				break
+		}
+	}
+
+	/**
+	 * Load execution times from global state
+	 */
+	private loadExecutionTimes(): void {
+		if (!this.context) {
+			this.log("warn", "Cannot load execution times: context not set")
+			return
+		}
+
+		try {
+			const savedTimes = this.context.globalState.get<Record<string, number>>(this.STORAGE_KEY)
+			if (savedTimes) {
+				this.lastExecutionTimes = new Map(Object.entries(savedTimes))
+				this.log("debug", `Loaded ${this.lastExecutionTimes.size} rule execution times from storage`)
+			}
+		} catch (err) {
+			this.log("error", `Failed to load execution times: ${err instanceof Error ? err.message : String(err)}`)
+		}
+	}
+
+	/**
+	 * Save execution times to global state
+	 */
+	private saveExecutionTimes(): Promise<void> {
+		if (!this.context) {
+			this.log("warn", "Cannot save execution times: context not set")
+			return Promise.resolve()
+		}
+
+		try {
+			const timesObject = Object.fromEntries(this.lastExecutionTimes.entries())
+			// Convert Thenable to Promise and handle errors
+			return Promise.resolve(this.context.globalState.update(this.STORAGE_KEY, timesObject))
+				.then(() => {
+					this.log("debug", `Saved ${this.lastExecutionTimes.size} rule execution times to storage`)
+				})
+				.catch((err: unknown) => {
+					this.log(
+						"error",
+						`Failed to save execution times: ${err instanceof Error ? err.message : String(err)}`,
+					)
+				})
+		} catch (err: unknown) {
+			this.log("error", `Failed to save execution times: ${err instanceof Error ? err.message : String(err)}`)
+			return Promise.resolve()
+		}
 	}
 
 	/**
 	 * Reset all rule execution times
 	 */
-	public resetAllRules(): void {
+	public resetAllRules(): Promise<void> {
 		this.lastExecutionTimes.clear()
-		logger.debug("All schedulable rules reset")
+		this.log("debug", "All schedulable rules reset")
+		return this.saveExecutionTimes()
 	}
 
 	/**
@@ -106,12 +220,12 @@ export class SchedulableRulesManager {
 	 */
 	public async loadSchedulableRules(cwd: string): Promise<SchedulableRule[]> {
 		try {
-			logger.debug(`Loading schedulable rules from: ${cwd}`)
+			this.log("debug", `Loading schedulable rules from: ${cwd}`)
 			const files = await fs.readdir(cwd)
 
 			// Filter for files matching the pattern .clinerules-\d+[smhd]
 			const ruleFiles = files.filter((file: string) => /^\.clinerules-\d+[smhd]$/.test(file))
-			logger.debug(`Found ${ruleFiles.length} schedulable rule files`)
+			this.log("debug", `Found ${ruleFiles.length} schedulable rule files`)
 
 			const rules: SchedulableRule[] = []
 
@@ -134,9 +248,10 @@ export class SchedulableRulesManager {
 						lastExecuted: this.lastExecutionTimes.get(file) || 0,
 					})
 
-					logger.debug(`Loaded rule file: ${file}, interval: ${display}`)
+					this.log("debug", `Loaded rule file: ${file}, interval: ${display}`)
 				} catch (err) {
-					logger.error(
+					this.log(
+						"error",
 						`Failed to parse schedulable rule file ${file}: ${err instanceof Error ? err.message : String(err)}`,
 					)
 				}
@@ -144,7 +259,7 @@ export class SchedulableRulesManager {
 
 			return rules
 		} catch (err) {
-			logger.error(`Failed to load schedulable rules: ${err instanceof Error ? err.message : String(err)}`)
+			this.log("error", `Failed to load schedulable rules: ${err instanceof Error ? err.message : String(err)}`)
 			return []
 		}
 	}
@@ -152,30 +267,70 @@ export class SchedulableRulesManager {
 	/**
 	 * Check if a rule should be executed based on its interval
 	 * @param rule - The rule to check
-	 * @returns True if the rule should be executed, false otherwise
-	 */
+	 /**
+	  * Check if a rule should be executed based on its interval
+	  * @param rule - The rule to check
+	  * @returns True if the rule should be executed, false otherwise
+	  */
 	public shouldExecuteRule(rule: SchedulableRule): boolean {
 		const now = Date.now()
 		const lastExecution = this.lastExecutionTimes.get(rule.fileName) || 0
-		const shouldExecute = now - lastExecution >= rule.interval
+		const timeElapsed = now - lastExecution
+		const timeRemaining = Math.max(0, rule.interval - timeElapsed)
+		const shouldExecute = timeElapsed >= rule.interval
 
+		// Format time remaining in a human-readable format
+		const formatTimeRemaining = (): string => {
+			if (timeRemaining === 0) return "ready now"
+
+			const seconds = Math.floor(timeRemaining / 1000) % 60
+			const minutes = Math.floor(timeRemaining / (1000 * 60)) % 60
+			const hours = Math.floor(timeRemaining / (1000 * 60 * 60))
+
+			const parts = []
+			if (hours > 0) parts.push(`${hours}h`)
+			if (minutes > 0) parts.push(`${minutes}m`)
+			if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`)
+
+			return parts.join(" ")
+		}
+
+		// Always log at "info" level for better visibility in the output panel
 		if (shouldExecute) {
-			logger.debug(
-				`Rule ${rule.fileName} should be executed (last executed: ${new Date(lastExecution).toISOString()})`,
+			this.log(
+				"info",
+				`Rule ${rule.fileName} is ready to execute (last executed: ${lastExecution > 0 ? new Date(lastExecution).toISOString() : "never"})`,
+			)
+		} else {
+			const nextRunTimeFormatted = new Date(lastExecution + rule.interval).toLocaleTimeString()
+			this.log(
+				"info", // Changed from debug to info for visibility
+				`Rule ${rule.fileName} will execute in ${formatTimeRemaining()} at ${nextRunTimeFormatted} (last executed: ${new Date(lastExecution).toISOString()})`,
 			)
 		}
 
 		return shouldExecute
 	}
-
-	/**
-	 * Mark a rule as executed
+	/*
+	 * Non-blocking method that saves the execution time to storage
+	 * without requiring the caller to await
+	 *
 	 * @param rule - The rule to mark as executed
 	 */
 	public markRuleAsExecuted(rule: SchedulableRule): void {
 		const now = Date.now()
 		this.lastExecutionTimes.set(rule.fileName, now)
-		logger.info(`Rule ${rule.fileName} marked as executed at ${new Date(now).toISOString()}`)
+		this.log("info", `Rule ${rule.fileName} marked as executed at ${new Date(now).toISOString()}`)
+
+		// Save to persistent storage without blocking
+		// This ensures that even if the caller doesn't await the promise,
+		// the execution times will still be saved to global state
+		Promise.resolve(this.saveExecutionTimes()).catch((err: unknown) => {
+			this.log(
+				"error",
+				`Failed to save execution times for ${rule.fileName}: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		})
 	}
 
 	/**
@@ -186,7 +341,7 @@ export class SchedulableRulesManager {
 	public async getExecutableRules(cwd: string): Promise<SchedulableRule[]> {
 		const rules = await this.loadSchedulableRules(cwd)
 		const executableRules = rules.filter((rule) => this.shouldExecuteRule(rule))
-		logger.debug(`Found ${executableRules.length} executable rules out of ${rules.length} total rules`)
+		this.log("debug", `Found ${executableRules.length} executable rules out of ${rules.length} total rules`)
 		return executableRules
 	}
 
@@ -195,20 +350,55 @@ export class SchedulableRulesManager {
 	 * @param cwd - The current working directory
 	 * @returns Promise resolving to an array of rules with next execution time
 	 */
-	public async getAllRules(cwd: string): Promise<Array<SchedulableRule & { nextExecution: number }>> {
+	public async getAllRules(
+		cwd: string,
+	): Promise<Array<SchedulableRule & { nextExecution: number; nextExecutionTimestamp: number }>> {
 		const rules = await this.loadSchedulableRules(cwd)
 		const now = Date.now()
 
 		return rules.map((rule) => {
 			const lastExecution = this.lastExecutionTimes.get(rule.fileName) || 0
-			const nextExecution = lastExecution + rule.interval
-			const timeRemaining = Math.max(0, nextExecution - now)
+			const nextExecutionTimestamp = lastExecution + rule.interval
+			const timeRemaining = Math.max(0, nextExecutionTimestamp - now)
+
+			// Format time remaining in a human-readable format
+			const timeUntilNextRun = this.formatTimeRemaining(timeRemaining)
+
+			// Format next run time as a nice clock time
+			const nextRunTime = new Date(nextExecutionTimestamp).toLocaleTimeString(undefined, {
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit",
+			})
 
 			return {
 				...rule,
 				lastExecuted: lastExecution,
 				nextExecution: timeRemaining,
+				nextExecutionTimestamp: nextExecutionTimestamp, // Add absolute timestamp to enable UI countdown
+				timeUntilNextRun: timeUntilNextRun, // Human-readable time remaining
+				nextRunTime: nextRunTime, // Clock time of next execution
 			}
 		})
+	}
+
+	/**
+	 * Format milliseconds into a human-readable time format
+	 * @param milliseconds - Time in milliseconds
+	 * @returns Human-readable time string
+	 */
+	private formatTimeRemaining(milliseconds: number): string {
+		if (milliseconds === 0) return "ready now"
+
+		const seconds = Math.floor(milliseconds / 1000) % 60
+		const minutes = Math.floor(milliseconds / (1000 * 60)) % 60
+		const hours = Math.floor(milliseconds / (1000 * 60 * 60))
+
+		const parts = []
+		if (hours > 0) parts.push(`${hours}h`)
+		if (minutes > 0) parts.push(`${minutes}m`)
+		if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`)
+
+		return parts.join(" ")
 	}
 }

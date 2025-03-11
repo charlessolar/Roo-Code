@@ -94,7 +94,10 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 
 		// Initialize SchedulableRulesManager
 		this.schedulableRulesManager = new SchedulableRulesManager()
-		this.outputChannel.appendLine("SchedulableRulesManager initialized")
+		this.schedulableRulesManager.setContext(this.context)
+		this.schedulableRulesManager.setOutputChannel(this.outputChannel)
+		this.outputChannel.appendLine("SchedulableRulesManager initialized with OutputChannel")
+		this.outputChannel.show() // Show the output channel to make logs visible
 
 		this.workspaceTracker = new WorkspaceTracker(this)
 		this.configManager = new ConfigManager(this.context)
@@ -2344,9 +2347,34 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		} = await this.getState()
 
 		// Get schedulable rules data
-		// Get schedulable rules data
-		let schedulableRules = await this.schedulableRulesManager.getAllRules(
-			vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || "",
+		const workspaceFolder = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || ""
+		this.outputChannel.appendLine(
+			`[${new Date().toLocaleTimeString()}] Fetching schedulable rules from ${workspaceFolder}`,
+		)
+
+		// Use existing API to get rules
+		const rawRules = await this.schedulableRulesManager.loadSchedulableRules(workspaceFolder)
+
+		// Process rules to add the required properties
+		const now = Date.now()
+		const schedulableRules = rawRules.map((rule) => {
+			const nextExecutionTime = rule.lastExecuted + rule.interval
+			const timeRemaining = Math.max(0, nextExecutionTime - now)
+
+			const nextTime = new Date(nextExecutionTime).toLocaleTimeString()
+			this.outputChannel.appendLine(
+				`Rule: ${rule.fileName}, next execution at ${nextTime}, time remaining: ${timeRemaining}ms`,
+			)
+
+			return {
+				...rule,
+				nextExecution: timeRemaining,
+				nextExecutionTimestamp: nextExecutionTime,
+			}
+		})
+
+		this.outputChannel.appendLine(
+			`Found ${schedulableRules.length} schedulable rules, fetched at ${new Date().toLocaleTimeString()}`,
 		)
 		const telemetryKey = process.env.POSTHOG_API_KEY
 		const machineId = vscode.env.machineId
@@ -2673,6 +2701,13 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 	// Add public getter
 	public getMcpHub(): McpHub | undefined {
 		return this.mcpHub
+	}
+
+	/**
+	 * Get the SchedulableRulesManager instance
+	 */
+	public getSchedulableRulesManager(): SchedulableRulesManager {
+		return this.schedulableRulesManager
 	}
 
 	/**
