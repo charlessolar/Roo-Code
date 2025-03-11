@@ -22,6 +22,7 @@ import { Mode, PromptComponent, defaultModeSlug, ModeConfig } from "../../shared
 import { checkExistKey } from "../../shared/checkExistApiConfig"
 import { EXPERIMENT_IDS, experiments as Experiments, experimentDefault, ExperimentId } from "../../shared/experiments"
 import { TERMINAL_OUTPUT_LIMIT } from "../../shared/terminal"
+import { TelemetrySetting } from "../../shared/TelemetrySetting"
 import { downloadTask } from "../../integrations/misc/export-markdown"
 import { openFile, openImage } from "../../integrations/misc/open-file"
 import { selectImages } from "../../integrations/misc/process-images"
@@ -56,7 +57,7 @@ import { openMention } from "../mentions"
 import { getNonce } from "./getNonce"
 import { getUri } from "./getUri"
 import { telemetryService } from "../../services/telemetry/TelemetryService"
-import { TelemetrySetting } from "../../shared/TelemetrySetting"
+import { SchedulableRulesManager } from "../prompts/sections/schedulable-rules"
 
 /**
  * https://github.com/microsoft/vscode-webview-ui-toolkit-samples/blob/main/default/weather-webview/src/providers/WeatherViewProvider.ts
@@ -73,6 +74,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 	private clineStack: Cline[] = []
 	private workspaceTracker?: WorkspaceTracker
 	protected mcpHub?: McpHub // Change from private to protected
+	private schedulableRulesManager: SchedulableRulesManager
 	private latestAnnouncementId = "mar-7-2025-3-8" // update to some unique identifier when we add a new announcement
 	private contextProxy: ContextProxy
 	configManager: ConfigManager
@@ -89,6 +91,10 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 
 		// Register this provider with the telemetry service to enable it to add properties like mode and provider
 		telemetryService.setProvider(this)
+
+		// Initialize SchedulableRulesManager
+		this.schedulableRulesManager = new SchedulableRulesManager()
+		this.outputChannel.appendLine("SchedulableRulesManager initialized")
 
 		this.workspaceTracker = new WorkspaceTracker(this)
 		this.configManager = new ConfigManager(this.context)
@@ -1963,6 +1969,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 				experiments,
 				enableMcpServerCreation,
 				rooIgnoreInstructions,
+				this.schedulableRulesManager,
 			)
 			return systemPrompt
 		}
@@ -2335,6 +2342,12 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			telemetrySetting,
 			showRooIgnoredFiles,
 		} = await this.getState()
+
+		// Get schedulable rules data
+		// Get schedulable rules data
+		let schedulableRules = await this.schedulableRulesManager.getAllRules(
+			vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || "",
+		)
 		const telemetryKey = process.env.POSTHOG_API_KEY
 		const machineId = vscode.env.machineId
 
@@ -2353,6 +2366,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			alwaysAllowMcp: alwaysAllowMcp ?? false,
 			alwaysAllowModeSwitch: alwaysAllowModeSwitch ?? false,
 			alwaysAllowSubtasks: alwaysAllowSubtasks ?? false,
+			schedulableRules,
 			uriScheme: vscode.env.uriScheme,
 			currentTaskItem: this.getCurrentCline()?.taskId
 				? (taskHistory || []).find((item: HistoryItem) => item.id === this.getCurrentCline()?.taskId)

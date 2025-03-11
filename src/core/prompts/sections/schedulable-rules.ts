@@ -136,13 +136,15 @@ export class SchedulableRulesManager {
 
 					logger.debug(`Loaded rule file: ${file}, interval: ${display}`)
 				} catch (err) {
-					logger.error(`Failed to parse schedulable rule file ${file}:`, err)
+					logger.error(
+						`Failed to parse schedulable rule file ${file}: ${err instanceof Error ? err.message : String(err)}`,
+					)
 				}
 			}
 
 			return rules
 		} catch (err) {
-			logger.error("Failed to load schedulable rules:", err)
+			logger.error(`Failed to load schedulable rules: ${err instanceof Error ? err.message : String(err)}`)
 			return []
 		}
 	}
