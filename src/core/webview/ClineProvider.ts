@@ -97,7 +97,9 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 		this.schedulableRulesManager.setContext(this.context)
 		this.schedulableRulesManager.setOutputChannel(this.outputChannel)
 		this.outputChannel.appendLine("SchedulableRulesManager initialized with OutputChannel")
-		this.outputChannel.show() // Show the output channel to make logs visible
+		if (typeof this.outputChannel.show === "function") {
+			this.outputChannel.show() // Show the output channel to make logs visible
+		}
 
 		this.workspaceTracker = new WorkspaceTracker(this)
 		this.configManager = new ConfigManager(this.context)

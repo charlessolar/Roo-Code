@@ -135,23 +135,25 @@ export class SchedulableRulesManager {
 
 			// Show the output panel for important messages
 			if (level === "info" || level === "warn" || level === "error") {
-				this.outputChannel.show(true)
+				if (typeof this.outputChannel.show === "function") {
+					this.outputChannel.show(true)
+				}
 			}
 		}
 
 		// Also log to the regular logger for completeness
 		switch (level) {
 			case "debug":
-				logger.debug(message)
+				if (typeof logger.debug === "function") logger.debug(message)
 				break
 			case "info":
-				logger.info(message)
+				if (typeof logger.info === "function") logger.info(message)
 				break
 			case "warn":
-				logger.warn(message)
+				if (typeof logger.warn === "function") logger.warn(message)
 				break
 			case "error":
-				logger.error(message)
+				if (typeof logger.error === "function") logger.error(message)
 				break
 		}
 	}
