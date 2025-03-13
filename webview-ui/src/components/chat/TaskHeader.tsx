@@ -65,7 +65,7 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	function without triggering re-renders or effect re-runs. This approach
 	ensures that our event listener always has access to the most current state
 	while minimizing performance overhead and potential memory leaks from
-	multiple listener registrations. 
+	multiple listener registrations.
 
 	Sources
 	- https://usehooks-ts.com/react-hook/use-event-listener
@@ -74,7 +74,7 @@ const TaskHeader: React.FC<TaskHeaderProps> = ({
 	- https://stackoverflow.com/questions/55565444/how-to-register-event-with-useeffect-hooks
 
 	Before:
-	
+
 	const updateMaxHeight = useCallback(() => {
 		if (isExpanded && textContainerRef.current) {
 			const maxHeight = window.innerHeight * (3 / 5)
@@ -389,6 +389,13 @@ const TaskActions = ({ item }: { item: HistoryItem | undefined }) => {
 				title={t("chat:task.export")}
 				onClick={() => vscode.postMessage({ type: "exportCurrentTask" })}>
 				<span className="codicon codicon-cloud-download" />
+			</Button>
+			<Button
+				variant="ghost"
+				size="default"
+				title="Export context window to file"
+				onClick={() => vscode.postMessage({ type: "exportContextWindow" })}>
+				<span className="codicon codicon-file-code" />
 			</Button>
 			{!!item?.size && item.size > 0 && (
 				<>

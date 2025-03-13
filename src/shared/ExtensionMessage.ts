@@ -58,6 +58,7 @@ export interface ExtensionMessage {
 		| "ttsStop"
 		| "maxReadFileLine"
 		| "fileSearchResults"
+		| "exportContextWindow"
 	text?: string
 	action?:
 		| "chatButtonClicked"

@@ -27,6 +27,7 @@ import { checkoutDiffPayloadSchema, checkoutRestorePayloadSchema, WebviewMessage
 import { Mode, PromptComponent, defaultModeSlug, ModeConfig } from "../../shared/modes"
 import { checkExistKey } from "../../shared/checkExistApiConfig"
 import { EXPERIMENT_IDS, experiments as Experiments, experimentDefault, ExperimentId } from "../../shared/experiments"
+import { getApiMetrics } from "../../shared/getApiMetrics"
 import { formatLanguage } from "../../shared/language"
 import { Terminal, TERMINAL_SHELL_INTEGRATION_TIMEOUT } from "../../integrations/terminal/Terminal"
 import { downloadTask } from "../../integrations/misc/export-markdown"
@@ -999,6 +1000,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 						if (currentTaskId) {
 							this.exportTaskWithId(currentTaskId)
 						}
+						break
+					case "exportContextWindow":
+						await this.exportContextWindow()
 						break
 					case "showTaskWithId":
 						this.showTaskWithId(message.text!)
@@ -2764,6 +2768,206 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 		await this.removeClineFromStack()
 		await this.postStateToWebview()
 		await this.postMessageToWebview({ type: "action", action: "chatButtonClicked" })
+	}
+
+	/**
+	 * Exports the current context window to a file in the project root
+	 * Contains system prompt, conversation history, and environment details
+	 */
+	/**
+	 * Formats message content for export, handling both string content and arrays of content blocks
+	 * @param content Message content to format (string or array of content blocks)
+	 * @returns Formatted string representation of the content
+	 */
+	private formatMessageContent(content: string | Array<any>): string {
+		// If content is a string, return it directly
+		if (typeof content === "string") {
+			return content
+		}
+
+		// If content is an array of content blocks, extract and concatenate text
+		if (Array.isArray(content)) {
+			return content
+				.map((block) => {
+					// Handle different types of content blocks
+					if (block.type === "text") {
+						return block.text || ""
+					} else if (block.type === "image") {
+						return "[IMAGE]"
+					} else if (block.type === "tool_use") {
+						const toolName = block.name || "unknown tool"
+						const inputParams = JSON.stringify(block.input || {}, null, 2)
+						return `[TOOL USE: ${toolName}]\n${inputParams}`
+					} else if (block.type === "tool_result") {
+						// Handle tool result content which can be string or array
+						if (typeof block.content === "string") {
+							return `[TOOL RESULT]\n${block.content}`
+						} else if (Array.isArray(block.content)) {
+							return `[TOOL RESULT]\n${this.formatMessageContent(block.content)}`
+						}
+						return "[TOOL RESULT]"
+					} else {
+						return `[${block.type || "UNKNOWN BLOCK TYPE"}]`
+					}
+				})
+				.join("\n\n")
+		}
+
+		// Fallback for unknown content type
+		return String(content)
+	}
+
+	/**
+	 * Exports the exact context window that is sent to the language model to a file.
+	 * This ensures that what's exported matches precisely what's sent to the LLM in API calls.
+	 */
+	async exportContextWindow() {
+		try {
+			// Get current cline instance
+			const currentCline = this.getCurrentCline()
+			if (!currentCline) {
+				vscode.window.showErrorMessage("No active task to export context window from.")
+				return
+			}
+
+			const cwd = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || ""
+			const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+			const filePath = path.join(cwd, `context-window-${timestamp}.txt`)
+
+			// Create header for the file
+			let content = `# CONTEXT WINDOW EXPORT (${timestamp})\n\n`
+			content += "This file contains the exact context window that is sent to the language model.\n"
+			content += "It represents the precise data used by the model to generate responses.\n\n"
+
+			// Generate the system prompt using the same method that's used in API calls
+			// This ensures we get the exact system prompt sent to the LLM
+			const {
+				apiConfiguration,
+				customModePrompts,
+				customInstructions,
+				preferredLanguage,
+				browserViewportSize,
+				diffEnabled,
+				mcpEnabled,
+				fuzzyMatchThreshold,
+				experiments,
+				enableMcpServerCreation,
+				browserToolEnabled,
+			} = await this.getState()
+
+			const rooIgnoreInstructions = currentCline.rooIgnoreController?.getInstructions()
+			const mode = ((await this.getGlobalState("mode")) as Mode) || defaultModeSlug
+			const customModes = await this.customModesManager.getCustomModes()
+			const modelSupportsComputerUse = currentCline.api.getModel().info.supportsComputerUse ?? false
+			const canUseBrowserTool = modelSupportsComputerUse && (browserToolEnabled ?? true)
+
+			// Get diffStrategy - exactly as used in API calls
+			const diffStrategy = getDiffStrategy(
+				apiConfiguration.apiModelId || apiConfiguration.openRouterModelId || "",
+				fuzzyMatchThreshold,
+				Experiments.isEnabled(experiments, EXPERIMENT_IDS.DIFF_STRATEGY),
+				Experiments.isEnabled(experiments, EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE),
+			)
+
+			// Generate the exact system prompt used in API calls
+			const systemPrompt = await SYSTEM_PROMPT(
+				this.context,
+				cwd,
+				canUseBrowserTool,
+				mcpEnabled ? this.mcpHub : undefined,
+				diffStrategy,
+				browserViewportSize ?? "900x600",
+				mode,
+				customModePrompts,
+				customModes,
+				customInstructions,
+				preferredLanguage,
+				diffEnabled,
+				experiments,
+				enableMcpServerCreation,
+				rooIgnoreInstructions,
+			)
+
+			// Add system prompt to content
+			content += "# SYSTEM PROMPT\n\n"
+			content += systemPrompt
+
+			// Get the conversation history - uses the exact same history sent to the API
+			const conversationHistory = currentCline.apiConversationHistory || []
+
+			// Clean conversation history the same way it's done before API calls
+			// This ensures we replicate the exact conversation context sent to the LLM
+			const cleanConversationHistory = conversationHistory.map(({ role, content: messageContent }) => {
+				// Handle array content (could contain image blocks)
+				if (Array.isArray(messageContent)) {
+					if (!currentCline.api.getModel().info.supportsImages) {
+						// Convert image blocks to text descriptions
+						messageContent = messageContent.map((block) => {
+							if (block.type === "image") {
+								return {
+									type: "text",
+									text: "[Referenced image in conversation]",
+								}
+							}
+							return block
+						})
+					}
+				}
+				return { role, content: messageContent }
+			})
+
+			// Add conversation history to content
+			content += "\n\n# CONVERSATION HISTORY\n\n"
+			for (const message of cleanConversationHistory) {
+				if (message.role === "user") {
+					content += `## USER\n\n${this.formatMessageContent(message.content)}\n\n`
+				} else if (message.role === "assistant") {
+					content += `## ASSISTANT\n\n${this.formatMessageContent(message.content)}\n\n`
+				}
+			}
+
+			// Include API model information
+			const modelInfo = currentCline.api.getModel()
+			content += "# MODEL INFORMATION\n\n"
+			content += `Model ID: ${modelInfo.id}\n`
+			content += `Provider: ${apiConfiguration.apiProvider}\n`
+			content += `Max tokens: ${modelInfo.info.maxTokens || "Unknown"}\n`
+			content += `Context window: ${modelInfo.info.contextWindow || "Unknown"}\n\n`
+
+			// Include environment details if available
+			const environmentDetailsMessage = currentCline.clineMessages.find(
+				(msg) => msg.text && msg.text.includes("<environment_details>"),
+			)
+
+			if (environmentDetailsMessage?.text) {
+				content += "# ENVIRONMENT DETAILS\n\n"
+				content += environmentDetailsMessage.text
+				content += "\n\n"
+			}
+
+			// Include token usage metrics
+			const { contextTokens } = getApiMetrics(currentCline.clineMessages)
+			if (contextTokens) {
+				content += "# TOKEN USAGE\n\n"
+				content += `Current context tokens: ${contextTokens}\n`
+				content += `Context window size: ${modelInfo.info.contextWindow || "Unknown"}\n`
+				content += `Percentage used: ${
+					contextTokens && modelInfo.info.contextWindow
+						? Math.round((contextTokens / modelInfo.info.contextWindow) * 100)
+						: "Unknown"
+				}%\n\n`
+			}
+
+			// Write to file with timestamp in filename to avoid overwriting
+			await fs.writeFile(filePath, content, "utf8")
+
+			vscode.window.showInformationMessage(`Context window exported to ${filePath}`)
+		} catch (error) {
+			this.log(`Error exporting context window: ${error.message}`)
+			vscode.window.showErrorMessage(
+				`Failed to export context window: ${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
 	}
 
 	// logging

@@ -116,6 +116,7 @@ export interface WebviewMessage {
 		| "language"
 		| "maxReadFileLine"
 		| "searchFiles"
+		| "exportContextWindow"
 	text?: string
 	disabled?: boolean
 	askResponse?: ClineAskResponse
