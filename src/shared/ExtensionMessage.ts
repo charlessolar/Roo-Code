@@ -54,6 +54,7 @@ export interface ExtensionMessage {
 		| "browserToolEnabled"
 		| "browserConnectionResult"
 		| "remoteBrowserEnabled"
+		| "exportContextWindow"
 	text?: string
 	action?:
 		| "chatButtonClicked"
