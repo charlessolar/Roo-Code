@@ -2635,7 +2635,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 	}
 
 	/**
-	 * Exports the exact context window that is sent to the language model to a file.
+	 * Exports the exact context window that is sent to the language model to a JSON file.
 	 * This ensures that what's exported matches precisely what's sent to the LLM in API calls.
 	 */
 	async exportContextWindow() {
@@ -2649,12 +2649,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 
 			const cwd = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath).at(0) || ""
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-			const filePath = path.join(cwd, `context-window-${timestamp}.txt`)
-
-			// Create header for the file
-			let content = `# CONTEXT WINDOW EXPORT (${timestamp})\n\n`
-			content += "This file contains the exact context window that is sent to the language model.\n"
-			content += "It represents the precise data used by the model to generate responses.\n\n"
+			const filePath = path.join(cwd, `context-window-${timestamp}.json`)
 
 			// Generate the system prompt using the same method that's used in API calls
 			// This ensures we get the exact system prompt sent to the LLM
@@ -2704,10 +2699,6 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 				rooIgnoreInstructions,
 			)
 
-			// Add system prompt to content
-			content += "# SYSTEM PROMPT\n\n"
-			content += systemPrompt
-
 			// Get the conversation history - uses the exact same history sent to the API
 			const conversationHistory = currentCline.apiConversationHistory || []
 
@@ -2732,50 +2723,55 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 				return { role, content: messageContent }
 			})
 
-			// Add conversation history to content
-			content += "\n\n# CONVERSATION HISTORY\n\n"
-			for (const message of cleanConversationHistory) {
-				if (message.role === "user") {
-					content += `## USER\n\n${this.formatMessageContent(message.content)}\n\n`
-				} else if (message.role === "assistant") {
-					content += `## ASSISTANT\n\n${this.formatMessageContent(message.content)}\n\n`
+			// Format conversation history for JSON
+			const formattedConversationHistory = cleanConversationHistory.map((message) => {
+				return {
+					role: message.role,
+					content: message.content,
 				}
-			}
+			})
 
 			// Include API model information
 			const modelInfo = currentCline.api.getModel()
-			content += "# MODEL INFORMATION\n\n"
-			content += `Model ID: ${modelInfo.id}\n`
-			content += `Provider: ${apiConfiguration.apiProvider}\n`
-			content += `Max tokens: ${modelInfo.info.maxTokens || "Unknown"}\n`
-			content += `Context window: ${modelInfo.info.contextWindow || "Unknown"}\n\n`
 
 			// Include environment details if available
 			const environmentDetailsMessage = currentCline.clineMessages.find(
 				(msg) => msg.text && msg.text.includes("<environment_details>"),
 			)
 
-			if (environmentDetailsMessage?.text) {
-				content += "# ENVIRONMENT DETAILS\n\n"
-				content += environmentDetailsMessage.text
-				content += "\n\n"
-			}
-
 			// Include token usage metrics
 			const { contextTokens } = getApiMetrics(currentCline.clineMessages)
-			if (contextTokens) {
-				content += "# TOKEN USAGE\n\n"
-				content += `Current context tokens: ${contextTokens}\n`
-				content += `Context window size: ${modelInfo.info.contextWindow || "Unknown"}\n`
-				content += `Percentage used: ${
-					contextTokens && modelInfo.info.contextWindow
-						? Math.round((contextTokens / modelInfo.info.contextWindow) * 100)
-						: "Unknown"
-				}%\n\n`
+
+			// Create JSON structure
+			const contextWindowData = {
+				metadata: {
+					timestamp: timestamp,
+					description:
+						"This file contains the exact context window that is sent to the language model. It represents the precise data used by the model to generate responses.",
+				},
+				systemPrompt: systemPrompt,
+				conversationHistory: formattedConversationHistory,
+				modelInformation: {
+					modelId: modelInfo.id,
+					provider: apiConfiguration.apiProvider,
+					maxTokens: modelInfo.info.maxTokens || "Unknown",
+					contextWindow: modelInfo.info.contextWindow || "Unknown",
+				},
+				environmentDetails: environmentDetailsMessage?.text || null,
+				tokenUsage: contextTokens
+					? {
+							currentContextTokens: contextTokens,
+							contextWindowSize: modelInfo.info.contextWindow || "Unknown",
+							percentageUsed:
+								contextTokens && modelInfo.info.contextWindow
+									? Math.round((contextTokens / modelInfo.info.contextWindow) * 100)
+									: "Unknown",
+						}
+					: null,
 			}
 
 			// Write to file with timestamp in filename to avoid overwriting
-			await fs.writeFile(filePath, content, "utf8")
+			await fs.writeFile(filePath, JSON.stringify(contextWindowData, null, 2), "utf8")
 
 			vscode.window.showInformationMessage(`Context window exported to ${filePath}`)
 		} catch (error) {
