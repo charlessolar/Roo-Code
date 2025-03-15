@@ -1530,6 +1530,10 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 						await this.updateGlobalState("showRooIgnoredFiles", message.bool ?? true)
 						await this.postStateToWebview()
 						break
+					case "skipDiffView":
+						await this.updateGlobalState("skipDiffView", message.bool ?? false)
+						await this.postStateToWebview()
+						break
 					case "enhancementApiConfigId":
 						await this.updateGlobalState("enhancementApiConfigId", message.text)
 						await this.postStateToWebview()
@@ -2304,6 +2308,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			browserToolEnabled,
 			telemetrySetting,
 			showRooIgnoredFiles,
+			skipDiffView,
 			language,
 		} = await this.getState()
 		const telemetryKey = process.env.POSTHOG_API_KEY
@@ -2369,6 +2374,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			telemetryKey,
 			machineId,
 			showRooIgnoredFiles: showRooIgnoredFiles ?? true,
+			skipDiffView: skipDiffView ?? false,
 			language,
 		}
 	}
@@ -2524,6 +2530,7 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 			browserToolEnabled: stateValues.browserToolEnabled ?? true,
 			telemetrySetting: stateValues.telemetrySetting || "unset",
 			showRooIgnoredFiles: stateValues.showRooIgnoredFiles ?? true,
+			skipDiffView: stateValues.skipDiffView ?? false,
 		}
 	}
 

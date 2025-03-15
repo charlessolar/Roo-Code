@@ -451,6 +451,7 @@ describe("ClineProvider", () => {
 			browserToolEnabled: true,
 			telemetrySetting: "unset",
 			showRooIgnoredFiles: true,
+			skipDiffView: false,
 		}
 
 		const message: ExtensionMessage = {
@@ -700,7 +701,6 @@ describe("ClineProvider", () => {
 		expect(state).toHaveProperty("browserToolEnabled")
 		expect(state.browserToolEnabled).toBe(true) // Default value should be true
 	})
-
 	test("handles showRooIgnoredFiles setting", async () => {
 		await provider.resolveWebviewView(mockWebviewView)
 		const messageHandler = (mockWebviewView.webview.onDidReceiveMessage as jest.Mock).mock.calls[0][0]
@@ -720,6 +720,27 @@ describe("ClineProvider", () => {
 		const state = await provider.getState()
 		expect(state).toHaveProperty("showRooIgnoredFiles")
 		expect(state.showRooIgnoredFiles).toBe(true) // Default value should be true
+	})
+
+	test("handles skipDiffView setting", async () => {
+		await provider.resolveWebviewView(mockWebviewView)
+		const messageHandler = (mockWebviewView.webview.onDidReceiveMessage as jest.Mock).mock.calls[0][0]
+
+		// Test skipDiffView with true
+		await messageHandler({ type: "skipDiffView", bool: true })
+		expect(mockContext.globalState.update).toHaveBeenCalledWith("skipDiffView", true)
+		expect(mockPostMessage).toHaveBeenCalled()
+
+		// Test skipDiffView with false
+		jest.clearAllMocks() // Clear all mocks including mockContext.globalState.update
+		await messageHandler({ type: "skipDiffView", bool: false })
+		expect(mockContext.globalState.update).toHaveBeenCalledWith("skipDiffView", false)
+		expect(mockPostMessage).toHaveBeenCalled()
+
+		// Verify state includes skipDiffView
+		const state = await provider.getState()
+		expect(state).toHaveProperty("skipDiffView")
+		expect(state.skipDiffView).toBe(false) // Default value should be false
 	})
 
 	test("handles request delay settings messages", async () => {

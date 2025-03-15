@@ -153,6 +153,7 @@ export interface ExtensionState {
 	telemetryKey?: string
 	machineId?: string
 	showRooIgnoredFiles: boolean // Whether to show .rooignore'd files in listings
+	skipDiffView: boolean // Whether to skip showing the diff view when making changes
 }
 
 export type { ClineMessage, ClineAsk, ClineSay }

@@ -72,6 +72,8 @@ export interface ExtensionStateContextType extends ExtensionState {
 	setTelemetrySetting: (value: TelemetrySetting) => void
 	remoteBrowserEnabled?: boolean
 	setRemoteBrowserEnabled: (value: boolean) => void
+	skipDiffView: boolean
+	setSkipDiffView: (value: boolean) => void
 	machineId?: string
 }
 
@@ -141,6 +143,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		browserToolEnabled: true,
 		telemetrySetting: "unset",
 		showRooIgnoredFiles: true, // Default to showing .rooignore'd files with lock symbol (current behavior)
+		skipDiffView: false, // Default to showing the diff view
 	})
 
 	const [didHydrateState, setDidHydrateState] = useState(false)
@@ -283,6 +286,7 @@ export const ExtensionStateContextProvider: React.FC<{ children: React.ReactNode
 		setBrowserToolEnabled: (value) => setState((prevState) => ({ ...prevState, browserToolEnabled: value })),
 		setTelemetrySetting: (value) => setState((prevState) => ({ ...prevState, telemetrySetting: value })),
 		setShowRooIgnoredFiles: (value) => setState((prevState) => ({ ...prevState, showRooIgnoredFiles: value })),
+		setSkipDiffView: (value) => setState((prevState) => ({ ...prevState, skipDiffView: value })),
 		setRemoteBrowserEnabled: (value) => setState((prevState) => ({ ...prevState, remoteBrowserEnabled: value })),
 	}
 

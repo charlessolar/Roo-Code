@@ -29,13 +29,16 @@ export class DiffViewProvider {
 
 	// Property to track if we're in readonly mode
 	private readonly = true
+	// Property to track if we should skip the diff view
+	private skipDiffView: boolean = false
 
 	async open(relPath: string): Promise<void> {
 		this.relPath = relPath
 		const fileExists = this.editType === "modify"
 		const absolutePath = path.resolve(this.cwd, relPath)
 		this.isEditing = true
-		// if the file is already open, ensure it's not dirty before getting its contents
+
+		// If the file is already open, ensure it's not dirty before getting its contents
 		if (fileExists) {
 			const existingDocument = vscode.workspace.textDocuments.find((doc) =>
 				arePathsEqual(doc.uri.fsPath, absolutePath),
@@ -45,7 +48,7 @@ export class DiffViewProvider {
 			}
 		}
 
-		// get diagnostics before editing the file, we'll compare to diagnostics after editing to see if cline needs to fix anything
+		// Get diagnostics before editing the file, we'll compare to diagnostics after editing to see if cline needs to fix anything
 		this.preDiagnostics = vscode.languages.getDiagnostics()
 
 		if (fileExists) {
@@ -53,15 +56,24 @@ export class DiffViewProvider {
 		} else {
 			this.originalContent = ""
 		}
-		// for new files, create any necessary directories and keep track of new directories to delete if the user denies the operation
+
+		// For new files, create any necessary directories and keep track of new directories to delete if the user denies the operation
 		this.createdDirs = await createDirectoriesForFile(absolutePath)
-		// make sure the file exists before we open it
+
+		// Make sure the file exists before we open it
 		if (!fileExists) {
 			await fs.writeFile(absolutePath, "")
 		}
-		// if the file was already open, close it (must happen after showing the diff view since if it's the only tab the column will close)
+
+		// If skipDiffView is enabled, we don't need to open any editor or track document state
+		if (this.skipDiffView) {
+			return
+		}
+
+		// If the file was already open, close it (must happen after showing the diff view since if it's the only tab the column will close)
 		this.documentWasOpen = false
-		// close the tab if it's open (it's already saved above)
+
+		// Close the tab if it's open (it's already saved above)
 		const tabs = vscode.window.tabGroups.all
 			.map((tg) => tg.tabs)
 			.flat()
@@ -74,9 +86,11 @@ export class DiffViewProvider {
 			}
 			this.documentWasOpen = true
 		}
+
 		this.activeDiffEditor = await this.openDiffEditor()
 		this.fadedOverlayController = new DecorationController("fadedOverlay", this.activeDiffEditor)
 		this.activeLineController = new DecorationController("activeLine", this.activeDiffEditor)
+
 		// Apply faded overlay to all lines initially
 		this.fadedOverlayController.addLines(0, this.activeDiffEditor.document.lineCount)
 		this.scrollEditorToLine(0) // will this crash for new files?
@@ -84,69 +98,71 @@ export class DiffViewProvider {
 	}
 
 	async update(accumulatedContent: string, isFinal: boolean) {
-		if (!this.relPath || !this.activeLineController || !this.fadedOverlayController) {
+		if (!this.relPath) {
 			throw new Error("Required values not set")
 		}
 		this.newContent = accumulatedContent
 
-		// When using a virtual document in the diff view, we can't directly edit it
-		// So we just update our stored content for the final save
+		const absolutePath = path.resolve(this.cwd, this.relPath)
 
-		// Update display elements
+		if (this.skipDiffView) {
+			// Write changes directly to disk when skipping diff view
+			await fs.writeFile(absolutePath, this.stripAllBOMs(accumulatedContent), "utf-8")
+			this.streamedLines = accumulatedContent.split("\n")
+			return
+		}
+
+		// These checks are only relevant when not skipping the diff view
+		if (!this.activeLineController || !this.fadedOverlayController) {
+			throw new Error("Decoration controllers not initialized")
+		}
+
 		const diffEditor = this.activeDiffEditor
 		if (!diffEditor) {
 			throw new Error("User closed text editor, unable to update view...")
 		}
 
-		// Calculate where we are in the content
 		const accumulatedLines = accumulatedContent.split("\n")
 		if (!isFinal) {
-			accumulatedLines.pop() // remove the last partial line only if it's not the final update
+			accumulatedLines.pop()
 		}
 		const endLine = accumulatedLines.length
 
-		// Place cursor at the beginning to keep it out of the way
 		const beginningOfDocument = new vscode.Position(0, 0)
 		diffEditor.selection = new vscode.Selection(beginningOfDocument, beginningOfDocument)
 
-		// Update decorations
 		this.activeLineController.setActiveLine(endLine)
 		this.fadedOverlayController.updateOverlayAfterLine(endLine, diffEditor.document.lineCount)
-
-		// Scroll to the current line
 		this.scrollEditorToLine(endLine)
-
-		// Update the streamedLines with the new accumulated content
 		this.streamedLines = accumulatedLines
 
 		if (isFinal) {
-			// Clear all decorations at the end
-			this.fadedOverlayController.clear()
-			this.activeLineController.clear()
+			// Only perform UI operations when not skipping diff view
+			if (!this.skipDiffView) {
+				this.fadedOverlayController.clear()
+				this.activeLineController.clear()
+				await this.closeAllDiffViews()
 
-			// For final update, open a new diff view with complete content
-			await this.closeAllDiffViews()
+				if (this.originalContent !== accumulatedContent) {
+					const tempFinalUri = vscode.Uri.parse(
+						`${DIFF_VIEW_URI_SCHEME}:final-${path.basename(this.relPath || "")}`,
+					).with({
+						query: Buffer.from(accumulatedContent).toString("base64"),
+					})
 
-			// Create a temp file with the final content to show the complete diff
-			if (this.originalContent !== accumulatedContent) {
-				const tempFinalUri = vscode.Uri.parse(
-					`${DIFF_VIEW_URI_SCHEME}:final-${path.basename(this.relPath || "")}`,
-				).with({
-					query: Buffer.from(accumulatedContent).toString("base64"),
-				})
+					const originalUri = vscode.Uri.parse(
+						`${DIFF_VIEW_URI_SCHEME}:original-${path.basename(this.relPath || "")}`,
+					).with({
+						query: Buffer.from(this.originalContent || "").toString("base64"),
+					})
 
-				const originalUri = vscode.Uri.parse(
-					`${DIFF_VIEW_URI_SCHEME}:original-${path.basename(this.relPath || "")}`,
-				).with({
-					query: Buffer.from(this.originalContent || "").toString("base64"),
-				})
-
-				await vscode.commands.executeCommand(
-					"vscode.diff",
-					originalUri,
-					tempFinalUri,
-					`${path.basename(this.relPath || "")}: Complete Changes (Readonly)`,
-				)
+					await vscode.commands.executeCommand(
+						"vscode.diff",
+						originalUri,
+						tempFinalUri,
+						`${path.basename(this.relPath || "")}: Complete Changes (Readonly)`,
+					)
+				}
 			}
 		}
 	}
@@ -161,12 +177,19 @@ export class DiffViewProvider {
 		}
 		const absolutePath = path.resolve(this.cwd, this.relPath)
 
-		// For readonly mode, write directly to the file
+		// Write directly to the file
 		await fs.writeFile(absolutePath, this.stripAllBOMs(this.newContent))
 
-		// Show the saved file
-		await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { preview: false })
-		await this.closeAllDiffViews()
+		// Only show the text document if we're not skipping the diff view
+		if (!this.skipDiffView) {
+			// Show the saved file
+			await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { preview: false })
+		}
+
+		// Close diff views only if we're not skipping them (they shouldn't be open anyway if skipDiffView is true)
+		if (!this.skipDiffView) {
+			await this.closeAllDiffViews()
+		}
 
 		// Check for new problems
 		const postDiagnostics = vscode.languages.getDiagnostics()
@@ -180,7 +203,7 @@ export class DiffViewProvider {
 		const newProblemsMessage =
 			newProblems.length > 0 ? `\n\nNew problems detected after saving the file:\n${newProblems}` : ""
 
-		// In readonly mode, no user edits are possible
+		// In readonly mode or skipDiffView mode, no user edits are possible
 		return {
 			newProblemsMessage,
 			userEdits: undefined,
@@ -195,8 +218,10 @@ export class DiffViewProvider {
 		const fileExists = this.editType === "modify"
 		const absolutePath = path.resolve(this.cwd, this.relPath)
 
-		// Close all diff views first
-		await this.closeAllDiffViews()
+		// If we're not skipping the diff view, close all open diff views
+		if (!this.skipDiffView) {
+			await this.closeAllDiffViews()
+		}
 
 		if (!fileExists) {
 			// If this was a new file, delete it
@@ -217,8 +242,8 @@ export class DiffViewProvider {
 			await fs.writeFile(absolutePath, this.originalContent ?? "")
 			console.log(`File ${absolutePath} has been reverted to its original content.`)
 
-			// If the document was open before we started, reopen it
-			if (this.documentWasOpen) {
+			// If the document was open before we started and we're not skipping diff view, reopen it
+			if (this.documentWasOpen && !this.skipDiffView) {
 				await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), {
 					preview: false,
 				})
@@ -230,6 +255,11 @@ export class DiffViewProvider {
 	}
 
 	private async closeAllDiffViews() {
+		// This method should only be called when skipDiffView is false
+		if (this.skipDiffView) {
+			return
+		}
+
 		const tabs = vscode.window.tabGroups.all
 			.flatMap((tg) => tg.tabs)
 			.filter(
@@ -249,6 +279,12 @@ export class DiffViewProvider {
 		if (!this.relPath) {
 			throw new Error("No file path set")
 		}
+
+		// Should never be called when skipDiffView is true, but add a check just in case
+		if (this.skipDiffView) {
+			throw new Error("Cannot open diff editor when skipDiffView is true")
+		}
+
 		const uri = vscode.Uri.file(path.resolve(this.cwd, this.relPath))
 		const tempFileUri = vscode.Uri.parse(`${DIFF_VIEW_URI_SCHEME}:${path.basename(uri.fsPath)}-temp`).with({
 			query: Buffer.from(this.originalContent ?? "").toString("base64"),
@@ -299,6 +335,10 @@ export class DiffViewProvider {
 	}
 
 	private scrollEditorToLine(line: number) {
+		if (this.skipDiffView) {
+			return // No editor to scroll when skipping diff view
+		}
+
 		if (this.activeDiffEditor) {
 			const scrollLine = line + 4
 			this.activeDiffEditor.revealRange(
@@ -309,6 +349,10 @@ export class DiffViewProvider {
 	}
 
 	scrollToFirstDiff() {
+		if (this.skipDiffView) {
+			return // No editor to scroll when skipping diff view
+		}
+
 		if (!this.activeDiffEditor) {
 			return
 		}

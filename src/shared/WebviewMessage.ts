@@ -107,6 +107,7 @@ export interface WebviewMessage {
 		| "browserConnectionResult"
 		| "remoteBrowserEnabled"
 		| "exportContextWindow"
+		| "skipDiffView"
 	text?: string
 	disabled?: boolean
 	askResponse?: ClineAskResponse

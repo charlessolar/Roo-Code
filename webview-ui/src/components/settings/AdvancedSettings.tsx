@@ -18,6 +18,7 @@ type AdvancedSettingsProps = HTMLAttributes<HTMLDivElement> & {
 	diffEnabled?: boolean
 	fuzzyMatchThreshold?: number
 	showRooIgnoredFiles?: boolean
+	skipDiffView?: boolean
 	setCachedStateField: SetCachedStateField<
 		| "rateLimitSeconds"
 		| "terminalOutputLineLimit"
@@ -25,7 +26,9 @@ type AdvancedSettingsProps = HTMLAttributes<HTMLDivElement> & {
 		| "diffEnabled"
 		| "fuzzyMatchThreshold"
 		| "showRooIgnoredFiles"
+		| "skipDiffView"
 	>
+
 	experiments: Record<ExperimentId, boolean>
 	setExperimentEnabled: SetExperimentEnabled
 }
@@ -36,6 +39,7 @@ export const AdvancedSettings = ({
 	diffEnabled,
 	fuzzyMatchThreshold,
 	showRooIgnoredFiles,
+	skipDiffView,
 	setCachedStateField,
 	experiments,
 	setExperimentEnabled,
@@ -134,6 +138,20 @@ export const AdvancedSettings = ({
 						When enabled, Roo will be able to edit files more quickly and will automatically reject
 						truncated full-file writes. Works best with the latest Claude 3.7 Sonnet model.
 					</p>
+
+					<div className="mt-3">
+						<VSCodeCheckbox
+							checked={skipDiffView}
+							onChange={(e: any) => {
+								setCachedStateField("skipDiffView", e.target.checked)
+							}}>
+							<span className="font-medium">Skip diff view when editing files</span>
+						</VSCodeCheckbox>
+						<p className="text-vscode-descriptionForeground text-sm mt-0">
+							When enabled, Roo will skip showing the diff view during file edits, applying changes
+							directly. This can improve performance but reduces visibility of changes being made.
+						</p>
+					</div>
 					{diffEnabled && (
 						<div className="flex flex-col gap-2 mt-3 mb-2 pl-3 border-l-2 border-vscode-button-background">
 							<div className="flex flex-col gap-2">
