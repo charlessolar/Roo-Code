@@ -169,6 +169,7 @@ export interface ExtensionState {
 	showRooIgnoredFiles: boolean // Whether to show .rooignore'd files in listings
 	renderContext: "sidebar" | "editor"
 	maxReadFileLine: number // Maximum number of lines to read from a file before truncating
+	skipDiffView: boolean // Whether to skip showing the diff view when making changes
 }
 
 export type { ClineMessage, ClineAsk, ClineSay }

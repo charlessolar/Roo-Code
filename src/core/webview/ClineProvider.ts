@@ -1646,6 +1646,10 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 						await this.updateGlobalState("showRooIgnoredFiles", message.bool ?? true)
 						await this.postStateToWebview()
 						break
+					case "skipDiffView":
+						await this.updateGlobalState("skipDiffView", message.bool ?? false)
+						await this.postStateToWebview()
+						break
 					case "maxReadFileLine":
 						await this.updateGlobalState("maxReadFileLine", message.value)
 						await this.postStateToWebview()
@@ -2476,6 +2480,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			browserToolEnabled,
 			telemetrySetting,
 			showRooIgnoredFiles,
+			skipDiffView,
 			language,
 			maxReadFileLine,
 		} = await this.getState()
@@ -2545,6 +2550,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			telemetryKey,
 			machineId,
 			showRooIgnoredFiles: showRooIgnoredFiles ?? true,
+			skipDiffView: skipDiffView ?? false,
 			language,
 			renderContext: this.renderContext,
 			maxReadFileLine: maxReadFileLine ?? 500,
@@ -2706,6 +2712,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			browserToolEnabled: stateValues.browserToolEnabled ?? true,
 			telemetrySetting: stateValues.telemetrySetting || "unset",
 			showRooIgnoredFiles: stateValues.showRooIgnoredFiles ?? true,
+			skipDiffView: stateValues.skipDiffView ?? false,
 			maxReadFileLine: stateValues.maxReadFileLine ?? 500,
 		}
 	}

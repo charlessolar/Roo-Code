@@ -16,7 +16,18 @@ type AdvancedSettingsProps = HTMLAttributes<HTMLDivElement> & {
 	rateLimitSeconds: number
 	diffEnabled?: boolean
 	fuzzyMatchThreshold?: number
-	setCachedStateField: SetCachedStateField<"rateLimitSeconds" | "diffEnabled" | "fuzzyMatchThreshold">
+	showRooIgnoredFiles?: boolean
+	skipDiffView?: boolean
+	setCachedStateField: SetCachedStateField<
+		| "rateLimitSeconds"
+		| "terminalOutputLineLimit"
+		| "maxOpenTabsContext"
+		| "diffEnabled"
+		| "fuzzyMatchThreshold"
+		| "showRooIgnoredFiles"
+		| "skipDiffView"
+	>
+
 	experiments: Record<ExperimentId, boolean>
 	setExperimentEnabled: SetExperimentEnabled
 }
@@ -24,6 +35,8 @@ export const AdvancedSettings = ({
 	rateLimitSeconds,
 	diffEnabled,
 	fuzzyMatchThreshold,
+	showRooIgnoredFiles,
+	skipDiffView,
 	setCachedStateField,
 	experiments,
 	setExperimentEnabled,
@@ -121,6 +134,58 @@ export const AdvancedSettings = ({
 								</SelectContent>
 							</Select>
 							<div className="text-vscode-descriptionForeground text-sm mt-1">
+					<p className="text-vscode-descriptionForeground text-sm mt-0">
+						When enabled, Roo will be able to edit files more quickly and will automatically reject
+						truncated full-file writes. Works best with the latest Claude 3.7 Sonnet model.
+					</p>
+
+					<div className="mt-3">
+						<VSCodeCheckbox
+							checked={skipDiffView}
+							onChange={(e: any) => {
+								setCachedStateField("skipDiffView", e.target.checked)
+							}}>
+							<span className="font-medium">Skip diff view when editing files</span>
+						</VSCodeCheckbox>
+						<p className="text-vscode-descriptionForeground text-sm mt-0">
+							When enabled, Roo will skip showing the diff view during file edits, applying changes
+							directly. This can improve performance but reduces visibility of changes being made.
+						</p>
+					</div>
+					{diffEnabled && (
+						<div className="flex flex-col gap-2 mt-3 mb-2 pl-3 border-l-2 border-vscode-button-background">
+							<div className="flex flex-col gap-2">
+								<span className="font-medium">Diff strategy</span>
+								<select
+									value={
+										experiments[EXPERIMENT_IDS.DIFF_STRATEGY]
+											? "unified"
+											: experiments[EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE]
+												? "multiBlock"
+												: "standard"
+									}
+									onChange={(e) => {
+										const value = e.target.value
+										if (value === "standard") {
+											setExperimentEnabled(EXPERIMENT_IDS.DIFF_STRATEGY, false)
+											setExperimentEnabled(EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE, false)
+										} else if (value === "unified") {
+											setExperimentEnabled(EXPERIMENT_IDS.DIFF_STRATEGY, true)
+											setExperimentEnabled(EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE, false)
+										} else if (value === "multiBlock") {
+											setExperimentEnabled(EXPERIMENT_IDS.DIFF_STRATEGY, false)
+											setExperimentEnabled(EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE, true)
+										}
+									}}
+									className="p-2 rounded w-full bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border outline-none focus:border-vscode-focusBorder">
+									<option value="standard">Standard (Single block)</option>
+									<option value="multiBlock">Experimental: Multi-block diff</option>
+									<option value="unified">Experimental: Unified diff</option>
+								</select>
+							</div>
+
+							{/* Description for selected strategy */}
+							<p className="text-vscode-descriptionForeground text-sm mt-1">
 								{!experiments[EXPERIMENT_IDS.DIFF_STRATEGY] &&
 									!experiments[EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE] &&
 									t("settings:advanced.diff.strategy.descriptions.standard")}

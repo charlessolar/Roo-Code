@@ -253,6 +253,7 @@ export type GlobalStateKey =
 	| "telemetrySetting"
 	| "showRooIgnoredFiles"
 	| "remoteBrowserEnabled"
+	| "skipDiffView"
 	| "language"
 	| "maxReadFileLine"
 	| "fakeAi"

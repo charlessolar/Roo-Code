@@ -120,6 +120,7 @@ export const GLOBAL_STATE_KEYS = [
 	"telemetrySetting",
 	"showRooIgnoredFiles",
 	"remoteBrowserEnabled",
+	"skipDiffView",
 	"language",
 	"maxWorkspaceFiles",
 	"maxReadFileLine",
