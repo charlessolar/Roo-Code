@@ -1248,45 +1248,176 @@ export class Cline extends EventEmitter<ClineEvents> {
 			// Regular expressions for key patterns
 			const envDetailsRegex = /<environment_details>[\s\S]*?<\/environment_details>/
 			const customInstructionsRegex = /<custom_instructions>[\s\S]*?<\/custom_instructions>/
+			const toolErrorRegex = /\[ERROR\] You did not use a tool in your previous response/
+			const readFileResultRegex = /\[read_file for '([^']+)'\] Result:/
+			const testReportRegex = /# TypeScript 2048 Game - .* Test (Report|Verification)/
 
-			// Process each message
-			const cleanedHistory = sortedHistory.map(({ role, content, ts }) => {
-				const processText = (text: string): string => {
-					// Check for and update last instances of special blocks
-					const envMatch = text.match(envDetailsRegex)
-					if (envMatch) lastEnvironmentDetails = envMatch[0]
+			// Keep track of seen content to remove duplicates
+			const seenContent = new Set<string>()
+			const seenSections = {
+				clinerules: false,
+				clinerulescode: false,
+				efficientEditing: false,
+				asyncExecution: false,
+				rooFiles: false,
+				packageRules: false,
+			}
 
-					const customMatch = text.match(customInstructionsRegex)
-					if (customMatch) lastCustomInstructions = customMatch[0]
+			// Track tool error messages
+			const toolErrorMessages: { index: number; ts: number | undefined }[] = []
 
-					// Handle interrupted responses
-					if (text.includes("Response interrupted by a tool use result")) {
-						return "[Response interrupted by a tool use result. Only one tool may be used at a time and should be placed at the end of the message.]"
+			// Correctly track read file results by filename
+			const readFileResults = new Map<string, { index: number; ts: number | undefined }[]>()
+
+			// Track test reports
+			const testReports: { index: number; ts: number | undefined }[] = []
+
+			// First pass - collect metadata about special messages
+			sortedHistory.forEach((message, index) => {
+				if (message.role === "user") {
+					const content =
+						typeof message.content === "string"
+							? message.content
+							: Array.isArray(message.content)
+								? (message.content.find((block) => block.type === "text")?.text as string) || ""
+								: ""
+
+					// Check for tool error messages
+					if (toolErrorRegex.test(content)) {
+						toolErrorMessages.push({ index, ts: message.ts })
 					}
 
-					// Remove all environment_details and custom_instructions blocks
-					return text
-						.replace(/<environment_details>[\s\S]*?<\/environment_details>/g, "")
-						.replace(/<custom_instructions>[\s\S]*?<\/custom_instructions>/g, "")
-						.trim()
-				}
-
-				// Handle different content types
-				if (typeof content === "string") {
-					return { role, content: processText(content) }
-				} else if (Array.isArray(content)) {
-					const processedContent = content.map((block) => {
-						if (block.type === "text" && typeof block.text === "string") {
-							return { ...block, text: processText(block.text) }
+					// Check for read file results
+					const readFileMatch = content.match(readFileResultRegex)
+					if (readFileMatch) {
+						const filename = readFileMatch[1]
+						if (!readFileResults.has(filename)) {
+							readFileResults.set(filename, [])
 						}
-						return block
-					})
+						readFileResults.get(filename)!.push({ index, ts: message.ts })
+					}
 
-					return { role, content: processedContent }
+					// Check for test reports
+					if (testReportRegex.test(content)) {
+						testReports.push({ index, ts: message.ts })
+					}
 				}
-
-				return { role, content } // Fallback
 			})
+
+			// Create a set of indices to exclude
+			const indicesToExclude = new Set<number>()
+
+			// Mark all but the last tool error message for exclusion
+			if (toolErrorMessages.length > 1) {
+				toolErrorMessages.slice(0, -1).forEach(({ index }) => indicesToExclude.add(index))
+			}
+
+			// Mark all but the last read file result for each filename for exclusion
+			for (const [_, fileEntries] of readFileResults.entries()) {
+				if (fileEntries.length > 1) {
+					// Sort by timestamp (ascending)
+					fileEntries.sort((a, b) => (a.ts || 0) - (b.ts || 0))
+					// Mark all but the last (most recent) entry for exclusion
+					fileEntries.slice(0, -1).forEach(({ index }) => indicesToExclude.add(index))
+				}
+			}
+
+			// Mark all but the last test report for exclusion
+			if (testReports.length > 1) {
+				testReports.slice(0, -1).forEach(({ index }) => indicesToExclude.add(index))
+			}
+
+			// Process each message
+			const cleanedHistory = sortedHistory
+				.filter((_, index) => !indicesToExclude.has(index))
+				.map(({ role, content, ts }) => {
+					const processText = (text: string): string => {
+						// Check for and update last instances of special blocks
+						const envMatch = text.match(envDetailsRegex)
+						if (envMatch) lastEnvironmentDetails = envMatch[0]
+
+						const customMatch = text.match(customInstructionsRegex)
+						if (customMatch) lastCustomInstructions = customMatch[0]
+
+						// Handle interrupted responses
+						if (text.includes("Response interrupted by a tool use result")) {
+							return "[Response interrupted by a tool use result. Only one tool may be used at a time and should be placed at the end of the message.]"
+						}
+
+						// Remove all environment_details blocks (they'll be added back at the end if needed)
+						let processedText = text
+							.replace(/<environment_details>[\s\S]*?<\/environment_details>/g, "")
+							.replace(/<custom_instructions>[\s\S]*?<\/custom_instructions>/g, "")
+
+						// Remove duplicate sections (while preserving format of retained content)
+
+						// Remove duplicate Rules from .clinerules: sections
+						if (seenSections.clinerules) {
+							processedText = processedText.replace(/# Rules from \.clinerules:[\s\S]*?(?=\n# |$)/g, "")
+						} else if (processedText.includes("# Rules from .clinerules:")) {
+							seenSections.clinerules = true
+						}
+
+						// Remove duplicate Rules from .clinerules-code: sections
+						if (seenSections.clinerulescode) {
+							processedText = processedText.replace(
+								/# Rules from \.clinerules-code:[\s\S]*?(?=\n# |$)/g,
+								"",
+							)
+						} else if (processedText.includes("# Rules from .clinerules-code:")) {
+							seenSections.clinerulescode = true
+						}
+
+						// Remove duplicate EFFICIENT FILE EDITING sections
+						if (seenSections.efficientEditing) {
+							processedText = processedText.replace(/## EFFICIENT FILE EDITING:[\s\S]*?(?=\n## |$)/g, "")
+						} else if (processedText.includes("## EFFICIENT FILE EDITING:")) {
+							seenSections.efficientEditing = true
+						}
+
+						// Remove duplicate Async Command Execution sections
+						if (seenSections.asyncExecution) {
+							processedText = processedText.replace(/## Async Command Execution[\s\S]*?(?=\n## |$)/g, "")
+						} else if (processedText.includes("## Async Command Execution")) {
+							seenSections.asyncExecution = true
+						}
+
+						// Remove duplicate .roo FILES sections
+						if (seenSections.rooFiles) {
+							processedText = processedText.replace(
+								/# IMPORTANT DETAILS ABOUT `\.roo` FILES[\s\S]*?(?=\n# |$)/g,
+								"",
+							)
+						} else if (processedText.includes("# IMPORTANT DETAILS ABOUT `.roo` FILES")) {
+							seenSections.rooFiles = true
+						}
+
+						// Remove duplicate Packages sections
+						if (seenSections.packageRules) {
+							processedText = processedText.replace(/## Packages[\s\S]*?(?=\n## |$)/g, "")
+						} else if (processedText.includes("## Packages")) {
+							seenSections.packageRules = true
+						}
+
+						return processedText.trim()
+					}
+
+					// Handle different content types
+					if (typeof content === "string") {
+						return { role, content: processText(content) }
+					} else if (Array.isArray(content)) {
+						const processedContent = content.map((block) => {
+							if (block.type === "text" && typeof block.text === "string") {
+								return { ...block, text: processText(block.text) }
+							}
+							return block
+						})
+
+						return { role, content: processedContent }
+					}
+
+					return { role, content } // Fallback
+				})
 
 			// Filter out blank messages
 			const filteredHistory = filterBlankMessages(cleanedHistory)
