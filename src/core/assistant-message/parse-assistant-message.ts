@@ -9,6 +9,9 @@ import {
 } from "."
 
 export function parseAssistantMessage(assistantMessage: string) {
+	// We don't wrap the entire message anymore - only tool calls should be wrapped in roo_action tags
+	const processedMessage = assistantMessage
+
 	let contentBlocks: AssistantMessageContent[] = []
 	let currentTextContent: TextContent | undefined = undefined
 	let currentTextContentStartIndex = 0
@@ -17,10 +20,19 @@ export function parseAssistantMessage(assistantMessage: string) {
 	let currentParamName: ToolParamName | undefined = undefined
 	let currentParamValueStartIndex = 0
 	let accumulator = ""
+	let insideRooAction = false
 
-	for (let i = 0; i < assistantMessage.length; i++) {
-		const char = assistantMessage[i]
+	// Process the message
+	for (let i = 0; i < processedMessage.length; i++) {
+		const char = processedMessage[i]
 		accumulator += char
+
+		// Track if we're inside roo_action tags
+		if (accumulator.endsWith("<roo_action>")) {
+			insideRooAction = true
+		} else if (accumulator.endsWith("</roo_action>")) {
+			insideRooAction = false
+		}
 
 		// there should not be a param without a tool use
 		if (currentToolUse && currentParamName) {
@@ -86,6 +98,7 @@ export function parseAssistantMessage(assistantMessage: string) {
 		let didStartToolUse = false
 		const possibleToolUseOpeningTags = toolUseNames.map((name) => `<${name}>`)
 		for (const toolUseOpeningTag of possibleToolUseOpeningTags) {
+			// Check for tool tags
 			if (accumulator.endsWith(toolUseOpeningTag)) {
 				// start of a new tool use
 				currentToolUse = {

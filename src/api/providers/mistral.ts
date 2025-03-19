@@ -56,6 +56,7 @@ export class MistralHandler extends BaseProvider implements SingleCompletionHand
 			messages: [{ role: "system", content: systemPrompt }, ...convertToMistralMessages(messages)],
 			maxTokens: this.options.includeMaxTokens ? this.getModel().info.maxTokens : undefined,
 			temperature: this.options.modelTemperature ?? MISTRAL_DEFAULT_TEMPERATURE,
+			stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 		})
 
 		for await (const chunk of response) {
@@ -101,6 +102,7 @@ export class MistralHandler extends BaseProvider implements SingleCompletionHand
 				model: this.options.apiModelId || mistralDefaultModelId,
 				messages: [{ role: "user", content: prompt }],
 				temperature: this.options.modelTemperature ?? MISTRAL_DEFAULT_TEMPERATURE,
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			})
 
 			const content = response.choices?.[0]?.message.content

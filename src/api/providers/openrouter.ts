@@ -109,6 +109,7 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			messages: openAiMessages,
 			stream: true,
 			include_reasoning: true,
+			stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			// This way, the transforms field will only be included in the parameters when openRouterUseMiddleOutTransform is true.
 			...((this.options.openRouterUseMiddleOutTransform ?? true) && { transforms: ["middle-out"] }),
 		}
@@ -212,6 +213,7 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			temperature,
 			messages: [{ role: "user", content: prompt }],
 			stream: false,
+			stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 		}
 
 		const response = await this.client.chat.completions.create(completionParams)

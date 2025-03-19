@@ -128,6 +128,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				messages: convertedMessages,
 				stream: true as const,
 				stream_options: { include_usage: true },
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			}
 			if (this.options.includeMaxTokens) {
 				requestOptions.max_tokens = modelInfo.maxTokens
@@ -184,6 +185,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				messages: deepseekReasoner
 					? convertToR1Format([{ role: "user", content: systemPrompt }, ...messages])
 					: [systemMessage, ...convertToOpenAiMessages(messages)],
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			}
 
 			const response = await this.client.chat.completions.create(requestOptions)
@@ -246,6 +248,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				stream: true,
 				stream_options: { include_usage: true },
 				reasoning_effort: this.getModel().info.reasoningEffort,
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			})
 
 			yield* this.handleStreamResponse(stream)
@@ -259,6 +262,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					},
 					...convertToOpenAiMessages(messages),
 				],
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			}
 
 			const response = await this.client.chat.completions.create(requestOptions)
