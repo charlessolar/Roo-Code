@@ -1250,7 +1250,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			const customInstructionsRegex = /<custom_instructions>[\s\S]*?<\/custom_instructions>/
 			const toolErrorRegex = /\[ERROR\] You did not use a tool in your previous response/
 			const readFileResultRegex = /\[read_file for '([^']+)'\] Result:/
-			const testReportRegex = /# TypeScript 2048 Game - .* Test (Report|Verification)/
+			const testReportRegex = /.* Test (Report|Verification)/
 
 			// Keep track of seen content to remove duplicates
 			const seenContent = new Set<string>()
@@ -1380,23 +1380,6 @@ export class Cline extends EventEmitter<ClineEvents> {
 							processedText = processedText.replace(/## Async Command Execution[\s\S]*?(?=\n## |$)/g, "")
 						} else if (processedText.includes("## Async Command Execution")) {
 							seenSections.asyncExecution = true
-						}
-
-						// Remove duplicate .roo FILES sections
-						if (seenSections.rooFiles) {
-							processedText = processedText.replace(
-								/# IMPORTANT DETAILS ABOUT `\.roo` FILES[\s\S]*?(?=\n# |$)/g,
-								"",
-							)
-						} else if (processedText.includes("# IMPORTANT DETAILS ABOUT `.roo` FILES")) {
-							seenSections.rooFiles = true
-						}
-
-						// Remove duplicate Packages sections
-						if (seenSections.packageRules) {
-							processedText = processedText.replace(/## Packages[\s\S]*?(?=\n## |$)/g, "")
-						} else if (processedText.includes("## Packages")) {
-							seenSections.packageRules = true
 						}
 
 						return processedText.trim()
