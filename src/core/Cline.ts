@@ -1244,6 +1244,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			// Extract the last environment_details and custom_instructions
 			let lastEnvironmentDetails: string | null = null
 			let lastCustomInstructions: string | null = null
+			let lastClineRulesDash: string | null = null
 
 			// Regular expressions for key patterns
 			const envDetailsRegex = /<environment_details>[\s\S]*?<\/environment_details>/
@@ -1251,6 +1252,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			const toolErrorRegex = /\[ERROR\] You did not use a tool in your previous response/
 			const readFileResultRegex = /\[read_file for '([^']+)'\] Result:/
 			const testReportRegex = /.* Test (Report|Verification)/
+			const rulesFromClineRulesDashRegex = /# Rules from \.clinerules-[a-z\-]+:[\s\S]*?(?=\n# |$)/
 
 			// Keep track of seen content to remove duplicates
 			const seenContent = new Set<string>()
@@ -1339,6 +1341,9 @@ export class Cline extends EventEmitter<ClineEvents> {
 						const customMatch = text.match(customInstructionsRegex)
 						if (customMatch) lastCustomInstructions = customMatch[0]
 
+						const clineRuleMath = text.match(rulesFromClineRulesDashRegex)
+						if (clineRuleMath) lastClineRulesDash = clineRuleMath[0]
+
 						// Handle interrupted responses
 						if (text.includes("Response interrupted by a tool use result")) {
 							return "[Response interrupted by a tool use result. Only one tool may be used at a time and should be placed at the end of the message.]"
@@ -1358,29 +1363,15 @@ export class Cline extends EventEmitter<ClineEvents> {
 							seenSections.clinerules = true
 						}
 
-						// Remove duplicate Rules from .clinerules-code: sections
-						if (seenSections.clinerulescode) {
-							processedText = processedText.replace(
-								/# Rules from \.clinerules-code:[\s\S]*?(?=\n# |$)/g,
-								"",
-							)
-						} else if (processedText.includes("# Rules from .clinerules-code:")) {
-							seenSections.clinerulescode = true
-						}
-
-						// Remove duplicate EFFICIENT FILE EDITING sections
-						if (seenSections.efficientEditing) {
-							processedText = processedText.replace(/## EFFICIENT FILE EDITING:[\s\S]*?(?=\n## |$)/g, "")
-						} else if (processedText.includes("## EFFICIENT FILE EDITING:")) {
-							seenSections.efficientEditing = true
-						}
-
-						// Remove duplicate Async Command Execution sections
-						if (seenSections.asyncExecution) {
-							processedText = processedText.replace(/## Async Command Execution[\s\S]*?(?=\n## |$)/g, "")
-						} else if (processedText.includes("## Async Command Execution")) {
-							seenSections.asyncExecution = true
-						}
+						// // Remove duplicate Rules from .clinerules-code: sections
+						// if (seenSections.clinerulescode) {
+						// 	processedText = processedText.replace(
+						// 		/# Rules from \.clinerules-code:[\s\S]*?(?=\n# |$)/g,
+						// 		"",
+						// 	)
+						// } else if (processedText.includes("# Rules from .clinerules-code:")) {
+						// 	seenSections.clinerulescode = true
+						// }
 
 						return processedText.trim()
 					}
@@ -1406,7 +1397,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			const filteredHistory = filterBlankMessages(cleanedHistory)
 
 			// Add the preserved blocks to the final result
-			return finalizeHistory(filteredHistory, lastEnvironmentDetails, lastCustomInstructions)
+			return finalizeHistory(filteredHistory, lastEnvironmentDetails, lastCustomInstructions, lastClineRulesDash)
 		}
 
 		// Add the preserved blocks to the final result
@@ -1414,6 +1405,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			cleanedHistory: Anthropic.MessageParam[],
 			lastEnvironmentDetails: string | null,
 			lastCustomInstructions: string | null,
+			lastClineRulesDash: string | null,
 		): Anthropic.MessageParam[] => {
 			if (!lastEnvironmentDetails && !lastCustomInstructions) return cleanedHistory
 			if (cleanedHistory.length === 0) return cleanedHistory
@@ -1449,6 +1441,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 								message.content,
 								lastEnvironmentDetails || "",
 								lastCustomInstructions || "",
+								lastClineRulesDash || "",
 							]),
 						}
 					} else if (Array.isArray(message.content)) {
@@ -1464,6 +1457,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 										textBlock.text,
 										lastEnvironmentDetails || "",
 										lastCustomInstructions || "",
+										lastClineRulesDash || "",
 									]),
 								}
 
