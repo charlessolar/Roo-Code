@@ -459,6 +459,7 @@ describe("ClineProvider", () => {
 			browserToolEnabled: true,
 			telemetrySetting: "unset",
 			showRooIgnoredFiles: true,
+
 			renderContext: "sidebar",
 			maxReadFileLine: 500,
 			skipDiffView: false,

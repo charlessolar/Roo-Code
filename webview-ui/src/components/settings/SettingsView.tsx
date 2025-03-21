@@ -473,7 +473,6 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone },
 						rateLimitSeconds={rateLimitSeconds}
 						diffEnabled={diffEnabled}
 						fuzzyMatchThreshold={fuzzyMatchThreshold}
-						skipDiffView={skipDiffView}
 						setCachedStateField={setCachedStateField}
 						setExperimentEnabled={setExperimentEnabled}
 						experiments={experiments}
