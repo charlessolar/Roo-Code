@@ -260,6 +260,11 @@
 		"configuration": {
 			"title": "Roo Code",
 			"properties": {
+				"roo-cline.enableTaskLogging": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable logging of all task interactions to a persistent file"
+				},
 				"roo-cline.allowedCommands": {
 					"type": "array",
 					"items": {
