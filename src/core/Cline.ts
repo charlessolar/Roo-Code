@@ -2541,9 +2541,9 @@ export class Cline extends EventEmitter<ClineEvents> {
 								let endLine: number | undefined = undefined
 
 								// Check if we have either range parameter
-								if (startLineStr || endLineStr) {
-									isRangeRead = true
-								}
+								// if (startLineStr || endLineStr) {
+								// 	isRangeRead = true
+								// }
 
 								// Parse start_line if provided
 								if (startLineStr) {
@@ -2610,40 +2610,41 @@ export class Cline extends EventEmitter<ClineEvents> {
 								let isFileTruncated = false
 								let sourceCodeDef = ""
 
-								const isBinary = await isBinaryFile(absolutePath).catch(() => false)
+								//const isBinary = await isBinaryFile(absolutePath).catch(() => false)
 
-								if (isRangeRead) {
-									if (startLine === undefined) {
-										content = addLineNumbers(await readLines(absolutePath, endLine, startLine))
-									} else {
-										content = addLineNumbers(
-											await readLines(absolutePath, endLine, startLine),
-											startLine,
-										)
-									}
-								} else if (!isBinary && totalLines > maxReadFileLine) {
-									// If file is too large, only read the first maxReadFileLine lines
-									isFileTruncated = true
+								// if (isRangeRead) {
+								// 	if (startLine === undefined) {
+								// 		content = addLineNumbers(await readLines(absolutePath, endLine, startLine))
+								// 	} else {
+								// 		content = addLineNumbers(
+								// 			await readLines(absolutePath, endLine, startLine),
+								// 			startLine,
+								// 		)
+								// 	}
+								// } else
+								// if (!isBinary && totalLines > maxReadFileLine) {
+								// 	// If file is too large, only read the first maxReadFileLine lines
+								// 	isFileTruncated = true
 
-									const res = await Promise.all([
-										readLines(absolutePath, maxReadFileLine - 1, 0),
-										parseSourceCodeDefinitionsForFile(absolutePath, this.rooIgnoreController),
-									])
+								// 	const res = await Promise.all([
+								// 		readLines(absolutePath, maxReadFileLine - 1, 0),
+								// 		parseSourceCodeDefinitionsForFile(absolutePath, this.rooIgnoreController),
+								// 	])
 
-									content = addLineNumbers(res[0])
-									const result = res[1]
-									if (result) {
-										sourceCodeDef = `\n\n${result}`
-									}
-								} else {
-									// Read entire file
-									content = await extractTextFromFile(absolutePath)
-								}
+								// 	content = addLineNumbers(res[0])
+								// 	const result = res[1]
+								// 	if (result) {
+								// 		sourceCodeDef = `\n\n${result}`
+								// 	}
+								// } else {
+								// Read entire file
+								content = await extractTextFromFile(absolutePath)
+								//}
 
 								// Add truncation notice if applicable
-								if (isFileTruncated) {
-									content += `\n\n[File truncated: showing ${maxReadFileLine} of ${totalLines} total lines. Use start_line and end_line if you need to read more.].${sourceCodeDef}`
-								}
+								// if (isFileTruncated) {
+								// 	content += `\n\n[File truncated: showing ${maxReadFileLine} of ${totalLines} total lines. Use start_line and end_line if you need to read more.].${sourceCodeDef}`
+								// }
 
 								pushToolResult(content)
 								break
