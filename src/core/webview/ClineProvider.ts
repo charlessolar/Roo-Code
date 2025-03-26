@@ -10,7 +10,18 @@ import * as vscode from "vscode"
 
 import { changeLanguage, t } from "../../i18n"
 import { setPanel } from "../../activate/registerCommands"
-import { ApiConfiguration, ApiProvider, ModelInfo, API_CONFIG_KEYS } from "../../shared/api"
+import {
+	ApiConfiguration,
+	ApiProvider,
+	ModelInfo,
+	API_CONFIG_KEYS,
+	requestyDefaultModelId,
+	requestyDefaultModelInfo,
+	openRouterDefaultModelId,
+	openRouterDefaultModelInfo,
+	glamaDefaultModelId,
+	glamaDefaultModelInfo,
+} from "../../shared/api"
 import { findLast } from "../../shared/array"
 import { supportPrompt } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
@@ -24,7 +35,7 @@ import {
 import { HistoryItem } from "../../shared/HistoryItem"
 import { ApiConfigMeta, ExtensionMessage } from "../../shared/ExtensionMessage"
 import { checkoutDiffPayloadSchema, checkoutRestorePayloadSchema, WebviewMessage } from "../../shared/WebviewMessage"
-import { Mode, PromptComponent, defaultModeSlug, ModeConfig } from "../../shared/modes"
+import { Mode, PromptComponent, defaultModeSlug, ModeConfig, getModeBySlug, getGroupName } from "../../shared/modes"
 import { checkExistKey } from "../../shared/checkExistApiConfig"
 import { EXPERIMENT_IDS, experiments as Experiments, experimentDefault, ExperimentId } from "../../shared/experiments"
 import { getApiMetrics } from "../../shared/getApiMetrics"
@@ -75,7 +86,7 @@ import { getWorkspacePath } from "../../utils/path"
  */
 
 export type ClineProviderEvents = {
-	clineAdded: [cline: Cline]
+	clineCreated: [cline: Cline]
 }
 
 export class ClineProvider extends EventEmitter<ClineProviderEvents> implements vscode.WebviewViewProvider {
@@ -133,8 +144,6 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 
 		// Add this cline instance into the stack that represents the order of all the called tasks.
 		this.clineStack.push(cline)
-
-		this.emit("clineAdded", cline)
 
 		// Ensure getState() resolves correctly.
 		const state = await this.getState()
@@ -486,6 +495,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			rootTask: this.clineStack.length > 0 ? this.clineStack[0] : undefined,
 			parentTask,
 			taskNumber: this.clineStack.length + 1,
+			onCreated: (cline) => this.emit("clineCreated", cline),
 		})
 
 		await this.addClineToStack(cline)
@@ -551,6 +561,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			rootTask: historyItem.rootTask,
 			parentTask: historyItem.parentTask,
 			taskNumber: historyItem.number,
+			onCreated: (cline) => this.emit("clineCreated", cline),
 		})
 
 		await this.addClineToStack(cline)
@@ -594,6 +605,8 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			"codicon.css",
 		])
 
+		const imagesUri = getUri(webview, this.contextProxy.extensionUri, ["assets", "images"])
+
 		const file = "src/index.tsx"
 		const scriptUri = `http://${localServerUrl}/${file}`
 
@@ -612,7 +625,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			`font-src ${webview.cspSource}`,
 			`style-src ${webview.cspSource} 'unsafe-inline' https://* http://${localServerUrl} http://0.0.0.0:${localPort}`,
 			`img-src ${webview.cspSource} data:`,
-			`script-src 'unsafe-eval' https://* https://*.posthog.com http://${localServerUrl} http://0.0.0.0:${localPort} 'nonce-${nonce}'`,
+			`script-src 'unsafe-eval' ${webview.cspSource} https://* https://*.posthog.com http://${localServerUrl} http://0.0.0.0:${localPort} 'nonce-${nonce}'`,
 			`connect-src https://* https://*.posthog.com ws://${localServerUrl} ws://0.0.0.0:${localPort} http://${localServerUrl} http://0.0.0.0:${localPort}`,
 		]
 
@@ -625,6 +638,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 					<meta http-equiv="Content-Security-Policy" content="${csp.join("; ")}">
 					<link rel="stylesheet" type="text/css" href="${stylesUri}">
 					<link href="${codiconsUri}" rel="stylesheet" />
+					<script nonce="${nonce}">
+						window.IMAGES_BASE_URI = "${imagesUri}"
+					</script>
 					<title>Roo Code</title>
 				</head>
 				<body>
@@ -673,6 +689,8 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			"codicon.css",
 		])
 
+		const imagesUri = getUri(webview, this.contextProxy.extensionUri, ["assets", "images"])
+
 		// const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, "assets", "main.js"))
 
 		// const styleResetUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, "assets", "reset.css"))
@@ -705,6 +723,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} data:; script-src 'nonce-${nonce}' https://us-assets.i.posthog.com; connect-src https://openrouter.ai https://us.i.posthog.com https://us-assets.i.posthog.com;">
             <link rel="stylesheet" type="text/css" href="${stylesUri}">
 			<link href="${codiconsUri}" rel="stylesheet" />
+			<script nonce="${nonce}">
+				window.IMAGES_BASE_URI = "${imagesUri}"
+			</script>
             <title>Roo Code</title>
           </head>
           <body>
@@ -951,8 +972,16 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 						await this.updateGlobalState("alwaysAllowReadOnly", message.bool ?? undefined)
 						await this.postStateToWebview()
 						break
+					case "alwaysAllowReadOnlyOutsideWorkspace":
+						await this.updateGlobalState("alwaysAllowReadOnlyOutsideWorkspace", message.bool ?? undefined)
+						await this.postStateToWebview()
+						break
 					case "alwaysAllowWrite":
 						await this.updateGlobalState("alwaysAllowWrite", message.bool ?? undefined)
+						await this.postStateToWebview()
+						break
+					case "alwaysAllowWriteOutsideWorkspace":
+						await this.updateGlobalState("alwaysAllowWriteOutsideWorkspace", message.bool ?? undefined)
 						await this.postStateToWebview()
 						break
 					case "alwaysAllowExecute":
@@ -1658,10 +1687,6 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 						await this.updateGlobalState("enhancementApiConfigId", message.text)
 						await this.postStateToWebview()
 						break
-					case "enableCustomModeCreation":
-						await this.updateGlobalState("enableCustomModeCreation", message.bool ?? true)
-						await this.postStateToWebview()
-						break
 					case "autoApprovalEnabled":
 						await this.updateGlobalState("autoApprovalEnabled", message.bool ?? false)
 						await this.postStateToWebview()
@@ -1819,23 +1844,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 						break
 					case "upsertApiConfiguration":
 						if (message.text && message.apiConfiguration) {
-							try {
-								await this.configManager.saveConfig(message.text, message.apiConfiguration)
-								const listApiConfig = await this.configManager.listConfig()
-
-								await Promise.all([
-									this.updateGlobalState("listApiConfigMeta", listApiConfig),
-									this.updateApiConfiguration(message.apiConfiguration),
-									this.updateGlobalState("currentApiConfigName", message.text),
-								])
-
-								await this.postStateToWebview()
-							} catch (error) {
-								this.outputChannel.appendLine(
-									`Error create new api configuration: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`,
-								)
-								vscode.window.showErrorMessage(t("common:errors.create_api_config"))
-							}
+							await this.upsertApiConfiguration(message.text, message.apiConfiguration)
 						}
 						break
 					case "renameApiConfiguration":
@@ -2054,6 +2063,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 				apiConfiguration.apiModelId || apiConfiguration.openRouterModelId || "",
 				fuzzyMatchThreshold,
 				Experiments.isEnabled(experiments, EXPERIMENT_IDS.DIFF_STRATEGY),
+				Experiments.isEnabled(experiments, EXPERIMENT_IDS.MULTI_SEARCH_AND_REPLACE),
 			)
 			const cwd = this.cwd
 
@@ -2062,9 +2072,25 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 
 			const rooIgnoreInstructions = this.getCurrentCline()?.rooIgnoreController?.getInstructions()
 
-			// Determine if browser tools can be used based on model support and user settings
-			const modelSupportsComputerUse = this.getCurrentCline()?.api.getModel().info.supportsComputerUse ?? false
-			const canUseBrowserTool = modelSupportsComputerUse && (browserToolEnabled ?? true)
+			// Determine if browser tools can be used based on model support, mode, and user settings
+			let modelSupportsComputerUse = false
+
+			// Create a temporary API handler to check if the model supports computer use
+			// This avoids relying on an active Cline instance which might not exist during preview
+			try {
+				const tempApiHandler = buildApiHandler(apiConfiguration)
+				modelSupportsComputerUse = tempApiHandler.getModel().info.supportsComputerUse ?? false
+			} catch (error) {
+				console.error("Error checking if model supports computer use:", error)
+			}
+
+			// Check if the current mode includes the browser tool group
+			const modeConfig = getModeBySlug(mode, customModes)
+			const modeSupportsBrowser = modeConfig?.groups.some((group) => getGroupName(group) === "browser") ?? false
+
+			// Only enable browser tools if the model supports it, the mode includes browser tools,
+			// and browser tools are enabled in settings
+			const canUseBrowserTool = modelSupportsComputerUse && modeSupportsBrowser && (browserToolEnabled ?? true)
 
 			const systemPrompt = await SYSTEM_PROMPT(
 				this.context,
@@ -2144,7 +2170,6 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 				await this.configManager.setModeConfig(mode, config.id)
 			}
 		}
-
 		await this.contextProxy.setApiConfiguration(apiConfiguration)
 
 		if (this.getCurrentCline()) {
@@ -2232,15 +2257,15 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 	}
 
 	async ensureSettingsDirectoryExists(): Promise<string> {
-		const settingsDir = path.join(this.contextProxy.globalStorageUri.fsPath, "settings")
-		await fs.mkdir(settingsDir, { recursive: true })
-		return settingsDir
+		const { getSettingsDirectoryPath } = await import("../../shared/storagePathManager")
+		const globalStoragePath = this.contextProxy.globalStorageUri.fsPath
+		return getSettingsDirectoryPath(globalStoragePath)
 	}
 
 	private async ensureCacheDirectoryExists() {
-		const cacheDir = path.join(this.contextProxy.globalStorageUri.fsPath, "cache")
-		await fs.mkdir(cacheDir, { recursive: true })
-		return cacheDir
+		const { getCacheDirectoryPath } = await import("../../shared/storagePathManager")
+		const globalStoragePath = this.contextProxy.globalStorageUri.fsPath
+		return getCacheDirectoryPath(globalStoragePath)
 	}
 
 	private async readModelsFromCache(filename: string): Promise<Record<string, ModelInfo> | undefined> {
@@ -2258,9 +2283,10 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 	// OpenRouter
 
 	async handleOpenRouterCallback(code: string) {
+		let { apiConfiguration, currentApiConfigName } = await this.getState()
+
 		let apiKey: string
 		try {
-			const { apiConfiguration } = await this.getState()
 			const baseUrl = apiConfiguration.openRouterBaseUrl || "https://openrouter.ai/api/v1"
 			// Extract the base domain for the auth endpoint
 			const baseUrlDomain = baseUrl.match(/^(https?:\/\/[^\/]+)/)?.[1] || "https://openrouter.ai"
@@ -2277,17 +2303,15 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			throw error
 		}
 
-		const openrouter: ApiProvider = "openrouter"
-		await this.contextProxy.setValues({
-			apiProvider: openrouter,
+		const newConfiguration: ApiConfiguration = {
+			...apiConfiguration,
+			apiProvider: "openrouter",
 			openRouterApiKey: apiKey,
-		})
-
-		await this.postStateToWebview()
-		if (this.getCurrentCline()) {
-			this.getCurrentCline()!.api = buildApiHandler({ apiProvider: openrouter, openRouterApiKey: apiKey })
+			openRouterModelId: apiConfiguration?.openRouterModelId || openRouterDefaultModelId,
+			openRouterModelInfo: apiConfiguration?.openRouterModelInfo || openRouterDefaultModelInfo,
 		}
-		// await this.postMessageToWebview({ type: "action", action: "settingsButtonClicked" }) // bad ux if user is on welcome
+
+		await this.upsertApiConfiguration(currentApiConfigName, newConfiguration)
 	}
 
 	// Glama
@@ -2308,19 +2332,55 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			throw error
 		}
 
-		const glama: ApiProvider = "glama"
-		await this.contextProxy.setValues({
-			apiProvider: glama,
+		const { apiConfiguration, currentApiConfigName } = await this.getState()
+
+		const newConfiguration: ApiConfiguration = {
+			...apiConfiguration,
+			apiProvider: "glama",
 			glamaApiKey: apiKey,
-		})
-		await this.postStateToWebview()
-		if (this.getCurrentCline()) {
-			this.getCurrentCline()!.api = buildApiHandler({
-				apiProvider: glama,
-				glamaApiKey: apiKey,
-			})
+			glamaModelId: apiConfiguration?.glamaModelId || glamaDefaultModelId,
+			glamaModelInfo: apiConfiguration?.glamaModelInfo || glamaDefaultModelInfo,
 		}
-		// await this.postMessageToWebview({ type: "action", action: "settingsButtonClicked" }) // bad ux if user is on welcome
+
+		await this.upsertApiConfiguration(currentApiConfigName, newConfiguration)
+	}
+
+	// Requesty
+
+	async handleRequestyCallback(code: string) {
+		let { apiConfiguration, currentApiConfigName } = await this.getState()
+
+		const newConfiguration: ApiConfiguration = {
+			...apiConfiguration,
+			apiProvider: "requesty",
+			requestyApiKey: code,
+			requestyModelId: apiConfiguration?.requestyModelId || requestyDefaultModelId,
+			requestyModelInfo: apiConfiguration?.requestyModelInfo || requestyDefaultModelInfo,
+		}
+
+		await this.upsertApiConfiguration(currentApiConfigName, newConfiguration)
+	}
+
+	// Save configuration
+
+	async upsertApiConfiguration(configName: string, apiConfiguration: ApiConfiguration) {
+		try {
+			await this.configManager.saveConfig(configName, apiConfiguration)
+			const listApiConfig = await this.configManager.listConfig()
+
+			await Promise.all([
+				this.updateGlobalState("listApiConfigMeta", listApiConfig),
+				this.updateApiConfiguration(apiConfiguration),
+				this.updateGlobalState("currentApiConfigName", configName),
+			])
+
+			await this.postStateToWebview()
+		} catch (error) {
+			this.outputChannel.appendLine(
+				`Error create new api configuration: ${JSON.stringify(error, Object.getOwnPropertyNames(error), 2)}`,
+			)
+			vscode.window.showErrorMessage(t("common:errors.create_api_config"))
+		}
 	}
 
 	// Task history
@@ -2335,7 +2395,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 		const history = ((await this.getGlobalState("taskHistory")) as HistoryItem[] | undefined) || []
 		const historyItem = history.find((item) => item.id === id)
 		if (historyItem) {
-			const taskDirPath = path.join(this.contextProxy.globalStorageUri.fsPath, "tasks", id)
+			const { getTaskDirectoryPath } = await import("../../shared/storagePathManager")
+			const globalStoragePath = this.contextProxy.globalStorageUri.fsPath
+			const taskDirPath = await getTaskDirectoryPath(globalStoragePath, id)
 			const apiConversationHistoryFilePath = path.join(taskDirPath, GlobalFileNames.apiConversationHistory)
 			const uiMessagesFilePath = path.join(taskDirPath, GlobalFileNames.uiMessages)
 			const fileExists = await fileExistsAtPath(apiConversationHistoryFilePath)
@@ -2440,7 +2502,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			lastShownAnnouncementId,
 			customInstructions,
 			alwaysAllowReadOnly,
+			alwaysAllowReadOnlyOutsideWorkspace,
 			alwaysAllowWrite,
+			alwaysAllowWriteOutsideWorkspace,
 			alwaysAllowExecute,
 			alwaysAllowBrowser,
 			alwaysAllowMcp,
@@ -2495,7 +2559,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			apiConfiguration,
 			customInstructions,
 			alwaysAllowReadOnly: alwaysAllowReadOnly ?? false,
+			alwaysAllowReadOnlyOutsideWorkspace: alwaysAllowReadOnlyOutsideWorkspace ?? false,
 			alwaysAllowWrite: alwaysAllowWrite ?? false,
+			alwaysAllowWriteOutsideWorkspace: alwaysAllowWriteOutsideWorkspace ?? false,
 			alwaysAllowExecute: alwaysAllowExecute ?? false,
 			alwaysAllowBrowser: alwaysAllowBrowser ?? false,
 			alwaysAllowMcp: alwaysAllowMcp ?? false,
@@ -2636,14 +2702,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 		if (stateValues.apiProvider) {
 			apiProvider = stateValues.apiProvider
 		} else {
-			// Either new user or legacy user that doesn't have the apiProvider stored in state
-			// (If they're using OpenRouter or Bedrock, then apiProvider state will exist)
-			if (secretValues.apiKey) {
-				apiProvider = "anthropic"
-			} else {
-				// New users should default to openrouter
-				apiProvider = "openrouter"
-			}
+			apiProvider = "anthropic"
 		}
 
 		// Build the apiConfiguration object combining state values and secrets
@@ -2666,7 +2725,9 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
 			customInstructions: stateValues.customInstructions,
 			alwaysAllowReadOnly: stateValues.alwaysAllowReadOnly ?? false,
+			alwaysAllowReadOnlyOutsideWorkspace: stateValues.alwaysAllowReadOnlyOutsideWorkspace ?? false,
 			alwaysAllowWrite: stateValues.alwaysAllowWrite ?? false,
+			alwaysAllowWriteOutsideWorkspace: stateValues.alwaysAllowWriteOutsideWorkspace ?? false,
 			alwaysAllowExecute: stateValues.alwaysAllowExecute ?? false,
 			alwaysAllowBrowser: stateValues.alwaysAllowBrowser ?? false,
 			alwaysAllowMcp: stateValues.alwaysAllowMcp ?? false,

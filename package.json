@@ -3,7 +3,7 @@
 	"displayName": "Roo Code (prev. Roo Cline)",
 	"description": "A whole dev team of AI agents in your editor.",
 	"publisher": "RooVeterinaryInc",
-	"version": "3.10.2",
+	"version": "3.10.5",
 	"icon": "assets/icons/rocket.png",
 	"galleryBanner": {
 		"color": "#617A91",
@@ -141,6 +141,11 @@
 				"category": "Roo Code"
 			},
 			{
+				"command": "roo-cline.newTask",
+				"title": "New Task",
+				"category": "Roo Code"
+			},
+			{
 				"command": "roo-cline.terminalAddToContext",
 				"title": "Add Terminal Content to Context",
 				"category": "Terminal"
@@ -164,6 +169,11 @@
 				"command": "roo-cline.terminalExplainCommandInCurrentTask",
 				"title": "Explain This Command (Current Task)",
 				"category": "Terminal"
+			},
+			{
+				"command": "roo-cline.setCustomStoragePath",
+				"title": "Set Custom Storage Path",
+				"category": "Roo Code"
 			}
 		],
 		"menus": {
@@ -293,6 +303,11 @@
 						}
 					},
 					"description": "Settings for VSCode Language Model API"
+				},
+				"roo-cline.customStoragePath": {
+					"type": "string",
+					"default": "",
+					"description": "Custom storage path. Leave empty to use the default location. Supports absolute paths (e.g. 'D:\\RooCodeStorage')"
 				}
 			}
 		}

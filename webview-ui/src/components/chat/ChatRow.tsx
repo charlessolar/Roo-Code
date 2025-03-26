@@ -252,7 +252,7 @@ export const ChatRowContent = ({
 	}, [message.ask, message.say, message.text])
 
 	const followUpData = useMemo(() => {
-		if (message.type === "ask" && message.ask === "followup" && message.partial === false) {
+		if (message.type === "ask" && message.ask === "followup" && !message.partial) {
 			return JSON.parse(message.text || "{}")
 		}
 		return null
@@ -272,7 +272,11 @@ export const ChatRowContent = ({
 					<>
 						<div style={headerStyle}>
 							{toolIcon(tool.tool === "appliedDiff" ? "diff" : "edit")}
-							<span style={{ fontWeight: "bold" }}>{t("chat:fileOperations.wantsToEdit")}</span>
+							<span style={{ fontWeight: "bold" }}>
+								{tool.isOutsideWorkspace
+									? t("chat:fileOperations.wantsToEditOutsideWorkspace")
+									: t("chat:fileOperations.wantsToEdit")}
+							</span>
 						</div>
 						<CodeAccordian
 							progressStatus={message.progressStatus}
@@ -307,7 +311,9 @@ export const ChatRowContent = ({
 							{toolIcon("file-code")}
 							<span style={{ fontWeight: "bold" }}>
 								{message.type === "ask"
-									? t("chat:fileOperations.wantsToRead")
+									? tool.isOutsideWorkspace
+										? t("chat:fileOperations.wantsToReadOutsideWorkspace")
+										: t("chat:fileOperations.wantsToRead")
 									: t("chat:fileOperations.didRead")}
 							</span>
 						</div>
@@ -357,6 +363,21 @@ export const ChatRowContent = ({
 									style={{ fontSize: 13.5, margin: "1px 0" }}></span>
 							</div>
 						</div>
+					</>
+				)
+			case "fetchInstructions":
+				return (
+					<>
+						<div style={headerStyle}>
+							{toolIcon("file-code")}
+							<span style={{ fontWeight: "bold" }}>{t("chat:instructions.wantsToFetch")}</span>
+						</div>
+						<CodeAccordian
+							isLoading={message.partial}
+							code={tool.content!}
+							isExpanded={isExpanded}
+							onToggleExpand={onToggleExpand}
+						/>
 					</>
 				)
 			case "listFilesTopLevel":

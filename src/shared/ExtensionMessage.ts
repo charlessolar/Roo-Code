@@ -121,7 +121,9 @@ export interface ExtensionState {
 	customModePrompts?: CustomModePrompts
 	customSupportPrompts?: CustomSupportPrompts
 	alwaysAllowReadOnly?: boolean
+	alwaysAllowReadOnlyOutsideWorkspace?: boolean
 	alwaysAllowWrite?: boolean
+	alwaysAllowWriteOutsideWorkspace?: boolean
 	alwaysAllowExecute?: boolean
 	alwaysAllowBrowser?: boolean
 	alwaysAllowMcp?: boolean
@@ -152,7 +154,6 @@ export interface ExtensionState {
 	terminalShellIntegrationTimeout?: number
 	mcpEnabled: boolean
 	enableMcpServerCreation: boolean
-	enableCustomModeCreation?: boolean
 	mode: Mode
 	modeApiConfigs?: Record<Mode, string>
 	enhancementApiConfigId?: string
@@ -181,6 +182,7 @@ export interface ClineSayTool {
 		| "appliedDiff"
 		| "newFileCreated"
 		| "readFile"
+		| "fetchInstructions"
 		| "listFilesTopLevel"
 		| "listFilesRecursive"
 		| "listCodeDefinitionNames"
@@ -195,6 +197,7 @@ export interface ClineSayTool {
 	filePattern?: string
 	mode?: string
 	reason?: string
+	isOutsideWorkspace?: boolean
 }
 
 // Must keep in sync with system prompt.
