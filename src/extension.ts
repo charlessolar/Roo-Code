@@ -14,6 +14,7 @@ try {
 
 import "./utils/path" // Necessary to have access to String.prototype.toPosix.
 
+import { Cline, ClineEvents } from "./core/Cline"
 import { initializeI18n } from "./i18n"
 import { ClineProvider } from "./core/webview/ClineProvider"
 import { CodeActionProvider } from "./core/CodeActionProvider"
@@ -77,7 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	telemetryService.setProvider(provider)
 
 	// Listen for ClineProvider events to attach logger to new tasks
-	provider.on("clineAdded", (cline) => {
+	provider.on("clineCreated", (cline: Cline) => {
 		taskLoggerManager.attachToTask(cline, cline.parentTask?.taskId)
 	})
 
