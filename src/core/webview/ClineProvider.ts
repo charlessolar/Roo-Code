@@ -2069,7 +2069,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			const systemPrompt = await SYSTEM_PROMPT(
 				this.context,
 				cwd,
-				canUseBrowserTool,
+				true, //canUseBrowserTool,
 				mcpEnabled ? this.mcpHub : undefined,
 				diffStrategy,
 				browserViewportSize ?? "900x600",
@@ -2875,7 +2875,7 @@ export class ClineProvider extends EventEmitter<ClineProviderEvents> implements 
 			const systemPrompt = await SYSTEM_PROMPT(
 				this.context,
 				cwd,
-				canUseBrowserTool,
+				true, //canUseBrowserTool,
 				mcpEnabled ? this.mcpHub : undefined,
 				diffStrategy,
 				browserViewportSize ?? "900x600",

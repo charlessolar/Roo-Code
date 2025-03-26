@@ -1140,7 +1140,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			return SYSTEM_PROMPT(
 				provider.context,
 				this.cwd,
-				(this.api.getModel().info.supportsComputerUse ?? false) && (browserToolEnabled ?? true),
+				true, //(this.api.getModel().info.supportsComputerUse ?? false) && (browserToolEnabled ?? true),
 				mcpHub,
 				this.diffStrategy,
 				browserViewportSize,
@@ -1354,6 +1354,10 @@ export class Cline extends EventEmitter<ClineEvents> {
 						let processedText = text
 							.replace(/<environment_details>[\s\S]*?<\/environment_details>/g, "")
 							.replace(/<custom_instructions>[\s\S]*?<\/custom_instructions>/g, "")
+							// The contents we write are irrelevant to the future conversation
+							.replace(/<write_to_file>[\s\S]*?<\/write_to_file>/g, "")
+							// this is a key string in claude, gets an error if we send it
+							.replace("<\|endoftext\|>", "<| end of text |>")
 
 						// Remove duplicate sections (while preserving format of retained content)
 
