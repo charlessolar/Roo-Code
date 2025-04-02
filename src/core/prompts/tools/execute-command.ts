@@ -6,15 +6,31 @@ Description: Request to execute a CLI command on the system. Use this when you n
 Parameters:
 - command: (required) The CLI command to execute. This should be valid for the current operating system. Ensure the command is properly formatted and does not contain any harmful instructions.
 - cwd: (optional) The working directory to execute the command in (default: ${args.cwd})
+
+ UNIVERSAL CRITICAL REQUIREMENT: ANY and ALL commands MUST run completely non-interactively and NEVER prompt for user input of any kind. This is a fundamental principle that applies to ALL command execution regardless of tool, language, or purpose.
+
+ For every command you run:
+ - Research and include ANY necessary flags to prevent prompts, confirmations, or interactive questions
+ - If a command might ask for confirmation, find and use its non-interactive option
+ - If a command might hang waiting for input, include timeout or auto-confirmation options
+ - Each command must be completely autonomous with no possibility of user interaction
+
+ Common patterns (these are just examples, this rule applies to ALL commands):
+ - Package managers: Add '--yes', '-y', or '--non-interactive' flags
+ - Installation tools: Use flags like '--accept-license', '--quiet', or '--silent'
+ - Deployment tools: Include options like '--no-confirm', '--auto-approve'
+ - Build tools: Add appropriate flags to suppress prompts
+ - Command-line tools: Include any available flag to disable interactive mode
+
 Usage:
 <execute_command>
-<command>Your command here</command>
+ <command>Your command here (with appropriate non-interactive flags)</command>
 <cwd>Working directory path (optional)</cwd>
 </execute_command>
 
-Example: Requesting to execute npm run dev
+Example:
 <execute_command>
-<command>npm run dev</command>
+ <command>some-command --non-interactive --no-prompt</command>
 </execute_command>
 
 Example: Requesting to execute ls in a specific directory if directed
