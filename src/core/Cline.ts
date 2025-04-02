@@ -1131,7 +1131,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			return SYSTEM_PROMPT(
 				provider.context,
 				this.cwd,
-				(this.api.getModel().info.supportsComputerUse ?? false) && (browserToolEnabled ?? true),
+				true, //(this.api.getModel().info.supportsComputerUse ?? false) && (browserToolEnabled ?? true),
 				mcpHub,
 				this.diffStrategy,
 				browserViewportSize,
