@@ -144,6 +144,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				temperature: this.options.modelTemperature ?? (deepseekReasoner ? DEEP_SEEK_DEFAULT_TEMPERATURE : 0),
 				messages: convertedMessages,
 				stream: true as const,
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 				...(isGrokXAI ? {} : { stream_options: { include_usage: true } }),
 				reasoning_effort: this.getModel().info.reasoningEffort,
 			}
@@ -206,9 +207,8 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 				model: modelId,
 				messages: deepseekReasoner
 					? convertToR1Format([{ role: "user", content: systemPrompt }, ...messages])
-					: enabledLegacyFormat
-						? [systemMessage, ...convertToSimpleMessages(messages)]
-						: [systemMessage, ...convertToOpenAiMessages(messages)],
+					: [systemMessage, ...convertToOpenAiMessages(messages)],
+				stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			}
 
 			const response = await this.client.chat.completions.create(
@@ -289,6 +289,7 @@ export class OpenAiHandler extends BaseProvider implements SingleCompletionHandl
 					stream: true,
 					...(isGrokXAI ? {} : { stream_options: { include_usage: true } }),
 					reasoning_effort: this.getModel().info.reasoningEffort,
+					stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 				},
 				methodIsAzureAiInference ? { path: AZURE_AI_INFERENCE_PATH } : {},
 			)
