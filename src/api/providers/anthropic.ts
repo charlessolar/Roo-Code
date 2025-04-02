@@ -55,6 +55,8 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 						max_tokens: maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
 						temperature,
 						thinking,
+						// Add stop sequence for roo_action
+						stop_sequences: ["</roo_action>"],
 						// Setting cache breakpoint for system prompt so new tasks can reuse it.
 						system: [{ text: systemPrompt, type: "text", cache_control: cacheControl }],
 						messages: messages.map((message, index) => {
@@ -113,6 +115,7 @@ export class AnthropicHandler extends BaseProvider implements SingleCompletionHa
 					model: modelId,
 					max_tokens: maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
 					temperature,
+					stop_sequences: ["</roo_action>"],
 					system: [{ text: systemPrompt, type: "text" }],
 					messages,
 					// tools,
