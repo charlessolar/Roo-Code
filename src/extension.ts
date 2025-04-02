@@ -22,6 +22,7 @@ import { DIFF_VIEW_URI_SCHEME } from "./integrations/editor/DiffViewProvider"
 import { McpServerManager } from "./services/mcp/McpServerManager"
 import { telemetryService } from "./services/telemetry/TelemetryService"
 import { TerminalRegistry } from "./integrations/terminal/TerminalRegistry"
+import { TaskLoggerManager } from "./services/logging/TaskLoggerManager"
 import { API } from "./exports/api"
 import { migrateSettings } from "./utils/migrateSettings"
 
@@ -59,6 +60,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Initialize terminal shell execution handlers.
 	TerminalRegistry.initialize()
 
+	// Initialize TaskLoggerManager
+	const taskLoggerManager = TaskLoggerManager.getInstance(context)
+	taskLoggerManager.setEnabled(true)
+
 	// Get default commands from configuration.
 	const defaultCommands = vscode.workspace.getConfiguration("roo-cline").get<string[]>("allowedCommands") || []
 
@@ -70,6 +75,11 @@ export async function activate(context: vscode.ExtensionContext) {
 	const contextProxy = await ContextProxy.getInstance(context)
 	const provider = new ClineProvider(context, outputChannel, "sidebar", contextProxy)
 	telemetryService.setProvider(provider)
+
+	// Listen for ClineProvider events to attach logger to new tasks
+	provider.on("clineCreated", (cline) => {
+		taskLoggerManager.attachToTask(cline, cline.parentTask?.taskId)
+	})
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(ClineProvider.sideBarId, provider, {
