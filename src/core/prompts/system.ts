@@ -166,7 +166,7 @@ ${customInstructions}`
 	return generatePrompt(
 		context,
 		cwd,
-		supportsComputerUse,
+		true, //supportsComputerUse,
 		currentMode.slug,
 		mcpHub,
 		effectiveDiffStrategy,

@@ -1307,7 +1307,7 @@ const generateSystemPrompt = async (provider: ClineProvider, message: WebviewMes
 	const systemPrompt = await SYSTEM_PROMPT(
 		provider.context,
 		cwd,
-		canUseBrowserTool,
+		true, //canUseBrowserTool,
 		mcpEnabled ? provider.getMcpHub() : undefined,
 		diffStrategy,
 		browserViewportSize ?? "900x600",
