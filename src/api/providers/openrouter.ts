@@ -105,6 +105,7 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			top_p: topP,
 			messages: openAiMessages,
 			stream: true,
+			stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 			stream_options: { include_usage: true },
 			// Only include provider if openRouterSpecificProvider is not "[default]".
 			...(this.options.openRouterSpecificProvider &&
@@ -186,6 +187,7 @@ export class OpenRouterHandler extends BaseProvider implements SingleCompletionH
 			temperature,
 			messages: [{ role: "user", content: prompt }],
 			stream: false,
+			stop: ["</roo_action>"], // Stop generation after roo_action closing tag
 		}
 
 		const response = await this.client.chat.completions.create(completionParams)
