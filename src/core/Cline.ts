@@ -1181,31 +1181,320 @@ export class Cline extends EventEmitter<ClineEvents> {
 				await this.overwriteApiConversationHistory(trimmedMessages)
 			}
 		}
+		// Function to filter out blank messages and blank blocks within messages
+		const filterBlankMessages = (
+			messages: (Anthropic.MessageParam & { ts?: number })[],
+		): Anthropic.MessageParam[] => {
+			return (
+				messages
+					.map((message) => {
+						// For string content, no change needed
+						if (typeof message.content === "string") {
+							return message
+						}
+
+						// For array content, filter out empty text blocks
+						if (Array.isArray(message.content)) {
+							const filteredBlocks = message.content.filter((block) => {
+								if (block.type === "text") {
+									return (block.text as string).trim() !== ""
+								}
+								// Keep non-text blocks (images, etc.)
+								return true
+							})
+
+							// Return message with filtered blocks
+							return {
+								...message,
+								content: filteredBlocks,
+							}
+						}
+
+						return message
+					})
+					// Then filter out messages that are now empty after block filtering
+					.filter((message) => {
+						if (typeof message.content === "string") {
+							return message.content.trim() !== ""
+						}
+
+						if (Array.isArray(message.content)) {
+							return message.content.length > 0
+						}
+
+						return true
+					})
+			)
+		}
+
+		const optimizeConversationHistory = (
+			history: (Anthropic.MessageParam & { ts?: number })[],
+		): Anthropic.MessageParam[] => {
+			// Sort by timestamp
+			const sortedHistory = [...history].sort((a, b) => (a.ts || 0) - (b.ts || 0))
+
+			// Extract the last environment_details and custom_instructions
+			let lastEnvironmentDetails: string | null = null
+			let lastCustomInstructions: string | null = null
+			let lastClineRulesDash: string | null = null
+
+			// Regular expressions for key patterns
+			const envDetailsRegex = /<environment_details>[\s\S]*?<\/environment_details>/
+			const customInstructionsRegex = /<custom_instructions>[\s\S]*?<\/custom_instructions>/
+			const toolErrorRegex = /\[ERROR\] You did not use a tool in your previous response/
+			const readFileResultRegex = /\[read_file for '([^']+)'\] Result:/
+			const testReportRegex = /.* Test (Report|Verification)/
+			const rulesFromClineRulesDashRegex = /# Rules from \.clinerules-[a-z\-]+:[\s\S]*?(?=\n# |$)/
+
+			// Keep track of seen content to remove duplicates
+			const seenContent = new Set<string>()
+			const seenSections = {
+				clinerules: false,
+				clinerulescode: false,
+				efficientEditing: false,
+				asyncExecution: false,
+				rooFiles: false,
+				packageRules: false,
+			}
+
+			// Track tool error messages
+			const toolErrorMessages: { index: number; ts: number | undefined }[] = []
+
+			// Correctly track read file results by filename
+			const readFileResults = new Map<string, { index: number; ts: number | undefined }[]>()
+
+			// Track test reports
+			const testReports: { index: number; ts: number | undefined }[] = []
+
+			// First pass - collect metadata about special messages
+			sortedHistory.forEach((message, index) => {
+				if (message.role === "user") {
+					const content =
+						typeof message.content === "string"
+							? message.content
+							: Array.isArray(message.content)
+								? (message.content.find((block) => block.type === "text")?.text as string) || ""
+								: ""
+
+					// Check for tool error messages
+					if (toolErrorRegex.test(content)) {
+						toolErrorMessages.push({ index, ts: message.ts })
+					}
+
+					// Check for read file results
+					const readFileMatch = content.match(readFileResultRegex)
+					if (readFileMatch) {
+						const filename = readFileMatch[1]
+						if (!readFileResults.has(filename)) {
+							readFileResults.set(filename, [])
+						}
+						readFileResults.get(filename)!.push({ index, ts: message.ts })
+					}
+
+					// Check for test reports
+					if (testReportRegex.test(content)) {
+						testReports.push({ index, ts: message.ts })
+					}
+				}
+			})
+
+			// Create a set of indices to exclude
+			const indicesToExclude = new Set<number>()
+
+			// Mark all but the last tool error message for exclusion
+			if (toolErrorMessages.length > 1) {
+				toolErrorMessages.slice(0, -1).forEach(({ index }) => indicesToExclude.add(index))
+			}
+
+			// Mark all but the last read file result for each filename for exclusion
+			for (const [_, fileEntries] of readFileResults.entries()) {
+				if (fileEntries.length > 1) {
+					// Sort by timestamp (ascending)
+					fileEntries.sort((a, b) => (a.ts || 0) - (b.ts || 0))
+					// Mark all but the last (most recent) entry for exclusion
+					fileEntries.slice(0, -1).forEach(({ index }) => indicesToExclude.add(index))
+				}
+			}
+
+			// Mark all but the last test report for exclusion
+			if (testReports.length > 1) {
+				testReports.slice(0, -1).forEach(({ index }) => indicesToExclude.add(index))
+			}
+
+			// Process each message
+			const cleanedHistory = sortedHistory
+				.filter((_, index) => !indicesToExclude.has(index))
+				.map(({ role, content, ts }) => {
+					const processText = (text: string): string => {
+						// Check for and update last instances of special blocks
+						const envMatch = text.match(envDetailsRegex)
+						if (envMatch) lastEnvironmentDetails = envMatch[0]
+
+						const customMatch = text.match(customInstructionsRegex)
+						if (customMatch) lastCustomInstructions = customMatch[0]
+
+						const clineRuleMath = text.match(rulesFromClineRulesDashRegex)
+						if (clineRuleMath) lastClineRulesDash = clineRuleMath[0]
+
+						// Handle interrupted responses
+						if (text.includes("Response interrupted by a tool use result")) {
+							return "[Response interrupted by a tool use result. Only one tool may be used at a time and should be placed at the end of the message.]"
+						}
+
+						// Remove all environment_details blocks (they'll be added back at the end if needed)
+						let processedText = text
+							.replace(/<environment_details>[\s\S]*?<\/environment_details>/g, "")
+							.replace(/<custom_instructions>[\s\S]*?<\/custom_instructions>/g, "")
+							// The contents we write are irrelevant to the future conversation
+							//.replace(/<write_to_file>[\s\S]*?<\/write_to_file>/g, "")
+							// this is a key string in claude, gets an error if we send it
+							.replace("<\|endoftext\|>", "<| end of text |>")
+
+						// Remove duplicate sections (while preserving format of retained content)
+
+						// Remove duplicate Rules from .clinerules: sections
+						if (seenSections.clinerules) {
+							processedText = processedText.replace(/# Rules from \.clinerules:[\s\S]*?(?=\n# |$)/g, "")
+						} else if (processedText.includes("# Rules from .clinerules:")) {
+							seenSections.clinerules = true
+						}
+
+						// // Remove duplicate Rules from .clinerules-code: sections
+						// if (seenSections.clinerulescode) {
+						// 	processedText = processedText.replace(
+						// 		/# Rules from \.clinerules-code:[\s\S]*?(?=\n# |$)/g,
+						// 		"",
+						// 	)
+						// } else if (processedText.includes("# Rules from .clinerules-code:")) {
+						// 	seenSections.clinerulescode = true
+						// }
+
+						return processedText.trim()
+					}
+
+					// Handle different content types
+					if (typeof content === "string") {
+						return { role, content: processText(content) }
+					} else if (Array.isArray(content)) {
+						const processedContent = content.map((block) => {
+							if (block.type === "text" && typeof block.text === "string") {
+								return { ...block, text: processText(block.text) }
+							}
+							return block
+						})
+
+						return { role, content: processedContent }
+					}
+
+					return { role, content } // Fallback
+				})
+
+			// Filter out blank messages
+			const filteredHistory = filterBlankMessages(cleanedHistory)
+
+			// Add the preserved blocks to the final result
+			return finalizeHistory(filteredHistory, lastEnvironmentDetails, lastCustomInstructions, lastClineRulesDash)
+		}
+
+		// Add the preserved blocks to the final result
+		const finalizeHistory = (
+			cleanedHistory: Anthropic.MessageParam[],
+			lastEnvironmentDetails: string | null,
+			lastCustomInstructions: string | null,
+			lastClineRulesDash: string | null,
+		): Anthropic.MessageParam[] => {
+			if (!lastEnvironmentDetails && !lastCustomInstructions) return cleanedHistory
+			if (cleanedHistory.length === 0) return cleanedHistory
+
+			// Find the last non-interrupted message
+			for (let i = cleanedHistory.length - 1; i >= 0; i--) {
+				const message = cleanedHistory[i]
+
+				const isInterrupted = (content: any): boolean => {
+					if (typeof content === "string") {
+						return content.includes("Response interrupted by a tool use result")
+					} else if (Array.isArray(content)) {
+						return content.some(
+							(block) =>
+								block.type === "text" &&
+								typeof block.text === "string" &&
+								block.text.includes("Response interrupted by a tool use result"),
+						)
+					}
+					return false
+				}
+
+				if (!isInterrupted(message.content)) {
+					// Append the preserved blocks to this message
+					const appendPreserved = (blocks: string[]): string => {
+						return blocks.filter(Boolean).join("\n\n")
+					}
+
+					if (typeof message.content === "string") {
+						cleanedHistory[i] = {
+							...message,
+							content: appendPreserved([
+								message.content,
+								lastEnvironmentDetails || "",
+								lastCustomInstructions || "",
+								lastClineRulesDash || "",
+							]),
+						}
+					} else if (Array.isArray(message.content)) {
+						// Find the last text block
+						for (let j = message.content.length - 1; j >= 0; j--) {
+							if (message.content[j].type === "text") {
+								const updatedContent = [...message.content]
+								const textBlock = updatedContent[j] as any
+
+								updatedContent[j] = {
+									...textBlock,
+									text: appendPreserved([
+										textBlock.text,
+										lastEnvironmentDetails || "",
+										lastCustomInstructions || "",
+										lastClineRulesDash || "",
+									]),
+								}
+
+								cleanedHistory[i] = { ...message, content: updatedContent }
+								break
+							}
+						}
+					}
+					break
+				}
+			}
+
+			return cleanedHistory
+		}
 
 		// Clean conversation history by:
 		// 1. Converting to Anthropic.MessageParam by spreading only the API-required properties
 		// 2. Converting image blocks to text descriptions if model doesn't support images
-		const cleanConversationHistory = this.apiConversationHistory.map(({ role, content }) => {
-			// Handle array content (could contain image blocks)
-			if (Array.isArray(content)) {
-				if (!this.api.getModel().info.supportsImages) {
-					// Convert image blocks to text descriptions
-					content = content.map((block) => {
-						if (block.type === "image") {
-							// Convert image blocks to text descriptions
-							// Note: We can't access the actual image content/url due to API limitations,
-							// but we can indicate that an image was present in the conversation
-							return {
-								type: "text",
-								text: "[Referenced image in conversation]",
+		const cleanConversationHistory = optimizeConversationHistory(this.apiConversationHistory).map(
+			({ role, content }) => {
+				// Handle array content (could contain image blocks)
+				if (Array.isArray(content)) {
+					if (!this.api.getModel().info.supportsImages) {
+						// Convert image blocks to text descriptions
+						content = content.map((block) => {
+							if (block.type === "image") {
+								// Convert image blocks to text descriptions
+								// Note: We can't access the actual image content/url due to API limitations,
+								// but we can indicate that an image was present in the conversation
+								return {
+									type: "text",
+									text: "[Referenced image in conversation]",
+								}
 							}
-						}
-						return block
-					})
+							return block
+						})
+					}
 				}
-			}
-			return { role, content }
-		})
+				return { role, content }
+			},
+		)
 
 		const stream = this.api.createMessage(systemPrompt, cleanConversationHistory)
 		const iterator = stream[Symbol.asyncIterator]()
