@@ -86,7 +86,7 @@ export class CustomModesManager {
 		} catch (error) {
 			const errorMsg = `Failed to load modes from ${filePath}: ${error instanceof Error ? error.message : String(error)}`
 			console.error(`[CustomModesManager] ${errorMsg}`)
-			return []
+			throw error
 		}
 	}
 
@@ -154,9 +154,10 @@ export class CustomModesManager {
 						return
 					}
 
-					// Get modes from .roomodes if it exists (takes precedence)
-					const roomodesPath = await this.getWorkspaceRoomodes()
-					const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
+					try {
+						// Get modes from .roomodes if it exists (takes precedence)
+						const roomodesPath = await this.getWorkspaceRoomodes()
+						const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
 
 					// Merge modes from both sources (.roomodes takes precedence)
 					const mergedModes = await this.mergeCustomModes(roomodesModes, result.data.customModes)
@@ -174,13 +175,15 @@ export class CustomModesManager {
 			this.disposables.push(
 				vscode.workspace.onDidSaveTextDocument(async (document) => {
 					if (arePathsEqual(document.uri.fsPath, roomodesPath)) {
-						const settingsModes = await this.loadModesFromFile(settingsPath)
-						const roomodesModes = await this.loadModesFromFile(roomodesPath)
-						// .roomodes takes precedence
-						const mergedModes = await this.mergeCustomModes(roomodesModes, settingsModes)
-						await this.context.globalState.update("customModes", mergedModes)
-						this.clearCache()
+						try {
+							const settingsModes = await this.loadModesFromFile(settingsPath)
+							const roomodesModes = await this.loadModesFromFile(roomodesPath)
+							// .roomodes takes precedence
+							const mergedModes = await this.mergeCustomModes(roomodesModes, settingsModes)
+							await this.context.globalState.update("customModes", mergedModes)
+							this.clearCache()
 						await this.onUpdate()
+						} catch {}
 					}
 				}),
 			)
@@ -201,7 +204,13 @@ export class CustomModesManager {
 
 		// Get modes from .roomodes if it exists.
 		const roomodesPath = await this.getWorkspaceRoomodes()
-		const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
+		const roomodesModes: ModeConfig[] = []
+
+		if (roomodesPath) {
+			try {
+				roomodesModes.push(...(await this.loadModesFromFile(roomodesPath)))
+			} catch {}
+		}
 
 		// Create maps to store modes by source.
 		const projectModes = new Map<string, ModeConfig>()
@@ -310,15 +319,17 @@ export class CustomModesManager {
 		const settingsPath = await this.getCustomModesFilePath()
 		const roomodesPath = await this.getWorkspaceRoomodes()
 
-		const settingsModes = await this.loadModesFromFile(settingsPath)
-		const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
-		const mergedModes = await this.mergeCustomModes(roomodesModes, settingsModes)
+		try {
+			const settingsModes = await this.loadModesFromFile(settingsPath)
+			const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
+			const mergedModes = await this.mergeCustomModes(roomodesModes, settingsModes)
 
-		await this.context.globalState.update("customModes", mergedModes)
+			await this.context.globalState.update("customModes", mergedModes)
 
 		this.clearCache()
 
 		await this.onUpdate()
+		} catch {}
 	}
 
 	public async deleteCustomMode(slug: string): Promise<void> {
