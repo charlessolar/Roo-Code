@@ -4,7 +4,7 @@ import { ApiHandler } from "../../api"
 /**
  * Default percentage of the context window to use as a buffer when deciding when to truncate
  */
-export const TOKEN_BUFFER_PERCENTAGE = 0.1
+export const TOKEN_BUFFER_PERCENTAGE = 0.75
 
 /**
  * Counts tokens for user content using the provider's token counting implementation.
