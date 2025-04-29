@@ -1,7 +1,7 @@
 import * as path from "path"
 import * as os from "os"
 import * as vscode from "vscode"
-import { Cline, ClineEvents } from "../../core/Cline"
+import { Cline } from "../../core/Cline"
 import { ClineMessage } from "../../exports/roo-code"
 import { TaskLogger } from "./TaskLogger"
 
@@ -149,7 +149,7 @@ export class TaskLoggerManager {
 	private monitorForModeSwitch(cline: Cline, logger: TaskLogger): void {
 		// Watch for tool messages with switch_mode
 		cline.on("message", ({ action, message }) => {
-			if (action === "created" && message.type === "say" && message.say === "tool" && message.text) {
+			if (action === "created" && message.type === "say" && message.text) {
 				try {
 					const toolData = JSON.parse(message.text)
 
@@ -178,7 +178,7 @@ export class TaskLoggerManager {
 	private handleSubtaskCreation(cline: Cline, logger: TaskLogger, childTaskId: string): void {
 		// Find the new_task message to get the task details
 		const newTaskMessage = cline.clineMessages.find(
-			(msg) => msg.type === "say" && msg.say === "tool" && msg.text && msg.text.includes("new_task"),
+			(msg) => msg.type === "say" && msg.text && msg.text.includes("new_task"),
 		)
 
 		if (newTaskMessage && newTaskMessage.text) {

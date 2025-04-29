@@ -15,18 +15,10 @@ export function parseAssistantMessage(assistantMessage: string) {
 	let currentParamName: ToolParamName | undefined = undefined
 	let currentParamValueStartIndex = 0
 	let accumulator = ""
-	let insideRooAction = false
 
 	for (let i = 0; i < processedMessage.length; i++) {
 		const char = processedMessage[i]
 		accumulator += char
-
-		// Track if we're inside roo_action tags
-		if (accumulator.endsWith("<roo_action>")) {
-			insideRooAction = true
-		} else if (accumulator.endsWith("</roo_action>")) {
-			insideRooAction = false
-		}
 
 		// there should not be a param without a tool use
 		if (currentToolUse && currentParamName) {

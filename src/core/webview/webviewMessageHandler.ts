@@ -32,9 +32,8 @@ import { openMention } from "../mentions"
 import { telemetryService } from "../../services/telemetry/TelemetryService"
 import { TelemetrySetting } from "../../shared/TelemetrySetting"
 import { getWorkspacePath } from "../../utils/path"
-import { Mode, defaultModeSlug, getModeBySlug, getGroupName } from "../../shared/modes"
+import { Mode, defaultModeSlug } from "../../shared/modes"
 import { SYSTEM_PROMPT } from "../prompts/system"
-import { buildApiHandler } from "../../api"
 import { GlobalState } from "../../schemas"
 import { MultiSearchReplaceDiffStrategy } from "../diff/strategies/multi-search-replace"
 import { getModels } from "../../api/providers/fetchers/cache"
@@ -1262,7 +1261,6 @@ export const webviewMessageHandler = async (provider: ClineProvider, message: We
 
 const generateSystemPrompt = async (provider: ClineProvider, message: WebviewMessage) => {
 	const {
-		apiConfiguration,
 		customModePrompts,
 		customInstructions,
 		browserViewportSize,
@@ -1271,7 +1269,6 @@ const generateSystemPrompt = async (provider: ClineProvider, message: WebviewMes
 		fuzzyMatchThreshold,
 		experiments,
 		enableMcpServerCreation,
-		browserToolEnabled,
 		language,
 	} = await provider.getState()
 
@@ -1283,26 +1280,6 @@ const generateSystemPrompt = async (provider: ClineProvider, message: WebviewMes
 	const customModes = await provider.customModesManager.getCustomModes()
 
 	const rooIgnoreInstructions = provider.getCurrentCline()?.rooIgnoreController?.getInstructions()
-
-	// Determine if browser tools can be used based on model support, mode, and user settings
-	let modelSupportsComputerUse = false
-
-	// Create a temporary API handler to check if the model supports computer use
-	// This avoids relying on an active Cline instance which might not exist during preview
-	try {
-		const tempApiHandler = buildApiHandler(apiConfiguration)
-		modelSupportsComputerUse = tempApiHandler.getModel().info.supportsComputerUse ?? false
-	} catch (error) {
-		console.error("Error checking if model supports computer use:", error)
-	}
-
-	// Check if the current mode includes the browser tool group
-	const modeConfig = getModeBySlug(mode, customModes)
-	const modeSupportsBrowser = modeConfig?.groups.some((group) => getGroupName(group) === "browser") ?? false
-
-	// Only enable browser tools if the model supports it, the mode includes browser tools,
-	// and browser tools are enabled in settings
-	const canUseBrowserTool = modelSupportsComputerUse && modeSupportsBrowser && (browserToolEnabled ?? true)
 
 	const systemPrompt = await SYSTEM_PROMPT(
 		provider.context,

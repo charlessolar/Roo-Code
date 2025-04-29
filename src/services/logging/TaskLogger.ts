@@ -1,6 +1,5 @@
 import fs from "fs/promises"
 import * as path from "path"
-import * as vscode from "vscode"
 import { ClineMessage } from "../../shared/ExtensionMessage"
 import { TokenUsage } from "../../exports/roo-code"
 
@@ -259,7 +258,7 @@ export class TaskLogger {
 		const message = messages[messages.length - 1]
 
 		// For handling mode, we can check for tools that switch modes
-		if (message.type === "say" && message.say === "tool" && message.text) {
+		if (message.type === "say" && message.text) {
 			try {
 				const toolData = JSON.parse(message.text)
 				if (toolData.tool === "switchMode" && toolData.mode) {

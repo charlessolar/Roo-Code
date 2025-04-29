@@ -978,15 +978,8 @@ export class Cline extends EventEmitter<ClineEvents> {
 
 		const rooIgnoreInstructions = this.rooIgnoreController?.getInstructions()
 
-		const {
-			browserViewportSize,
-			mode,
-			customModePrompts,
-			experiments,
-			enableMcpServerCreation,
-			browserToolEnabled,
-			language,
-		} = (await this.providerRef.deref()?.getState()) ?? {}
+		const { browserViewportSize, mode, customModePrompts, experiments, enableMcpServerCreation, language } =
+			(await this.providerRef.deref()?.getState()) ?? {}
 
 		const { customModes } = (await this.providerRef.deref()?.getState()) ?? {}
 
@@ -1122,7 +1115,6 @@ export class Cline extends EventEmitter<ClineEvents> {
 			const rulesFromClineRulesDashRegex = /# Rules from \.clinerules-[a-z\-]+:[\s\S]*?(?=\n# |$)/
 
 			// Keep track of seen content to remove duplicates
-			const seenContent = new Set<string>()
 			const seenSections = {
 				clinerules: false,
 				clinerulescode: false,
@@ -1199,7 +1191,7 @@ export class Cline extends EventEmitter<ClineEvents> {
 			// Process each message
 			const cleanedHistory = sortedHistory
 				.filter((_, index) => !indicesToExclude.has(index))
-				.map(({ role, content, ts }) => {
+				.map(({ role, content }) => {
 					const processText = (text: string): string => {
 						// Check for and update last instances of special blocks
 						const envMatch = text.match(envDetailsRegex)
