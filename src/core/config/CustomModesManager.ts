@@ -159,11 +159,12 @@ export class CustomModesManager {
 						const roomodesPath = await this.getWorkspaceRoomodes()
 						const roomodesModes = roomodesPath ? await this.loadModesFromFile(roomodesPath) : []
 
-					// Merge modes from both sources (.roomodes takes precedence)
-					const mergedModes = await this.mergeCustomModes(roomodesModes, result.data.customModes)
-					await this.context.globalState.update("customModes", mergedModes)
-					this.clearCache()
-					await this.onUpdate()
+						// Merge modes from both sources (.roomodes takes precedence)
+						const mergedModes = await this.mergeCustomModes(roomodesModes, result.data.customModes)
+						await this.context.globalState.update("customModes", mergedModes)
+						this.clearCache()
+						await this.onUpdate()
+					} catch {}
 				}
 			}),
 		)
@@ -182,7 +183,7 @@ export class CustomModesManager {
 							const mergedModes = await this.mergeCustomModes(roomodesModes, settingsModes)
 							await this.context.globalState.update("customModes", mergedModes)
 							this.clearCache()
-						await this.onUpdate()
+							await this.onUpdate()
 						} catch {}
 					}
 				}),
@@ -326,9 +327,9 @@ export class CustomModesManager {
 
 			await this.context.globalState.update("customModes", mergedModes)
 
-		this.clearCache()
+			this.clearCache()
 
-		await this.onUpdate()
+			await this.onUpdate()
 		} catch {}
 	}
 
