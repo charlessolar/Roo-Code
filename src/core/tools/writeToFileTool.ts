@@ -6,6 +6,7 @@ import { Cline } from "../Cline"
 import { ClineSayTool } from "../../shared/ExtensionMessage"
 import { formatResponse } from "../prompts/responses"
 import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag } from "../../shared/tools"
+import { promiseTimeout } from "../../utils/promise-utils"
 import { RecordSource } from "../context-tracking/FileContextTrackerTypes"
 import { fileExistsAtPath } from "../../utils/fs"
 import { addLineNumbers, stripLineNumbers, everyLineHasLineNumbers } from "../../integrations/misc/extract-text"
@@ -14,6 +15,10 @@ import { isPathOutsideWorkspace } from "../../utils/pathUtils"
 import { detectCodeOmission } from "../../integrations/editor/detect-omission"
 import { unescapeHtmlEntities } from "../../utils/text-normalization"
 
+export interface WriteFileToolOptions {
+	timeoutMs?: number
+}
+
 export async function writeToFileTool(
 	cline: Cline,
 	block: ToolUse,
@@ -21,7 +26,9 @@ export async function writeToFileTool(
 	handleError: HandleError,
 	pushToolResult: PushToolResult,
 	removeClosingTag: RemoveClosingTag,
+	options: WriteFileToolOptions = {},
 ) {
+	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
 	const relPath: string | undefined = block.params.path
 	let newContent: string | undefined = block.params.content
 	let predictedLineCount: number | undefined = parseInt(block.params.line_count ?? "0")
@@ -47,8 +54,23 @@ export async function writeToFileTool(
 		fileExists = cline.diffViewProvider.editType === "modify"
 	} else {
 		const absolutePath = path.resolve(cline.cwd, relPath)
-		fileExists = await fileExistsAtPath(absolutePath)
-		cline.diffViewProvider.editType = fileExists ? "modify" : "create"
+		try {
+			fileExists = await promiseTimeout(
+				fileExistsAtPath(absolutePath),
+				timeoutMs,
+				`Check if file exists operation timed out after ${timeoutMs / 1000} seconds`,
+			)
+			cline.diffViewProvider.editType = fileExists ? "modify" : "create"
+		} catch (error) {
+			if (error instanceof Error && error.message.includes("timed out")) {
+				// Handle timeout specifically
+				const timeoutMessage = `Operation timed out when checking if file exists at '${relPath}'. The operation is taking longer than ${timeoutMs / 1000} seconds.`
+				await cline.say("error", timeoutMessage)
+				pushToolResult(formatResponse.toolError(timeoutMessage))
+				return
+			}
+			throw error // Re-throw for the outer catch block to handle other errors
+		}
 	}
 
 	// pre-processing newContent for cases where weaker models might add artifacts like markdown codeblock markers (deepseek/llama) or extra escape characters (gemini)
@@ -207,7 +229,11 @@ export async function writeToFileTool(
 				return
 			}
 
-			const { newProblemsMessage, userEdits, finalContent } = await cline.diffViewProvider.saveChanges()
+			const { newProblemsMessage, userEdits, finalContent } = await promiseTimeout(
+				cline.diffViewProvider.saveChanges(),
+				timeoutMs,
+				`Saving changes operation timed out after ${timeoutMs / 1000} seconds`,
+			)
 
 			// Track file edit operation
 			if (relPath) {

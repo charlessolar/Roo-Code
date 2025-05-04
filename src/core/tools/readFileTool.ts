@@ -6,6 +6,7 @@ import { ClineSayTool } from "../../shared/ExtensionMessage"
 import { formatResponse } from "../prompts/responses"
 import { t } from "../../i18n"
 import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag } from "../../shared/tools"
+import { promiseTimeout } from "../../utils/promise-utils"
 import { RecordSource } from "../context-tracking/FileContextTrackerTypes"
 import { isPathOutsideWorkspace } from "../../utils/pathUtils"
 import { getReadablePath } from "../../utils/path"
@@ -14,6 +15,10 @@ import { readLines } from "../../integrations/misc/read-lines"
 import { extractTextFromFile, addLineNumbers } from "../../integrations/misc/extract-text"
 import { parseSourceCodeDefinitionsForFile } from "../../services/tree-sitter"
 
+export interface ReadFileToolOptions {
+	timeoutMs?: number
+}
+
 export async function readFileTool(
 	cline: Cline,
 	block: ToolUse,
@@ -21,7 +26,9 @@ export async function readFileTool(
 	handleError: HandleError,
 	pushToolResult: PushToolResult,
 	removeClosingTag: RemoveClosingTag,
+	options: ReadFileToolOptions = {},
 ) {
+	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
 	const relPath: string | undefined = block.params.path
 	const startLineStr: string | undefined = block.params.start_line
 	const endLineStr: string | undefined = block.params.end_line
@@ -140,7 +147,11 @@ export async function readFileTool(
 			let totalLines = 0
 
 			try {
-				totalLines = await countFileLines(absolutePath)
+				totalLines = await promiseTimeout(
+					countFileLines(absolutePath),
+					timeoutMs,
+					`Counting file lines timed out after ${timeoutMs / 1000} seconds`,
+				)
 			} catch (error) {
 				console.error(`Error counting lines in file ${absolutePath}:`, error)
 			}
@@ -154,18 +165,35 @@ export async function readFileTool(
 
 			if (isRangeRead) {
 				if (startLine === undefined) {
-					content = addLineNumbers(await readLines(absolutePath, endLine, startLine))
+					content = addLineNumbers(
+						await promiseTimeout(
+							readLines(absolutePath, endLine, startLine),
+							timeoutMs,
+							`Reading file lines timed out after ${timeoutMs / 1000} seconds`,
+						),
+					)
 				} else {
-					content = addLineNumbers(await readLines(absolutePath, endLine, startLine), startLine + 1)
+					content = addLineNumbers(
+						await promiseTimeout(
+							readLines(absolutePath, endLine, startLine),
+							timeoutMs,
+							`Reading file lines timed out after ${timeoutMs / 1000} seconds`,
+						),
+						startLine + 1,
+					)
 				}
 			} else if (!isBinary && maxReadFileLine >= 0 && totalLines > maxReadFileLine) {
 				// If file is too large, only read the first maxReadFileLine lines
 				isFileTruncated = true
 
-				const res = await Promise.all([
-					maxReadFileLine > 0 ? readLines(absolutePath, maxReadFileLine - 1, 0) : "",
-					parseSourceCodeDefinitionsForFile(absolutePath, cline.rooIgnoreController),
-				])
+				const res = await promiseTimeout(
+					Promise.all([
+						maxReadFileLine > 0 ? readLines(absolutePath, maxReadFileLine - 1, 0) : "",
+						parseSourceCodeDefinitionsForFile(absolutePath, cline.rooIgnoreController),
+					]),
+					timeoutMs,
+					`File reading operations timed out after ${timeoutMs / 1000} seconds`,
+				)
 
 				content = res[0].length > 0 ? addLineNumbers(res[0]) : ""
 				const result = res[1]
@@ -175,7 +203,11 @@ export async function readFileTool(
 				}
 			} else {
 				// Read entire file
-				content = await extractTextFromFile(absolutePath)
+				content = await promiseTimeout(
+					extractTextFromFile(absolutePath),
+					timeoutMs,
+					`Extracting text from file timed out after ${timeoutMs / 1000} seconds`,
+				)
 			}
 
 			// Create variables to store XML components

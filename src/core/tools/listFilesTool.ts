@@ -6,6 +6,7 @@ import { formatResponse } from "../prompts/responses"
 import { listFiles } from "../../services/glob/list-files"
 import { getReadablePath } from "../../utils/path"
 import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag } from "../../shared/tools"
+import { promiseTimeout } from "../../utils/promise-utils"
 
 /**
  * Implements the list_files tool.
@@ -20,7 +21,12 @@ import { ToolUse, AskApproval, HandleError, PushToolResult, RemoveClosingTag } f
  * @param pushToolResult - A function that pushes the result of this tool to the
  *   conversation.
  * @param removeClosingTag - A function that removes a closing tag from a string.
+ * @param options - Additional options for the tool, including timeout settings.
  */
+
+export interface ListFilesToolOptions {
+	timeoutMs?: number
+}
 
 export async function listFilesTool(
 	cline: Cline,
@@ -29,7 +35,9 @@ export async function listFilesTool(
 	handleError: HandleError,
 	pushToolResult: PushToolResult,
 	removeClosingTag: RemoveClosingTag,
+	options: ListFilesToolOptions = {},
 ) {
+	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
 	const relDirPath: string | undefined = block.params.path
 	const recursiveRaw: string | undefined = block.params.recursive
 	const recursive = recursiveRaw?.toLowerCase() === "true"
@@ -55,25 +63,46 @@ export async function listFilesTool(
 			cline.consecutiveMistakeCount = 0
 
 			const absolutePath = path.resolve(cline.cwd, relDirPath)
-			const [files, didHitLimit] = await listFiles(absolutePath, recursive, 200)
-			const { showRooIgnoredFiles = true } = (await cline.providerRef.deref()?.getState()) ?? {}
 
-			const result = formatResponse.formatFilesList(
-				absolutePath,
-				files,
-				didHitLimit,
-				cline.rooIgnoreController,
-				showRooIgnoredFiles,
-			)
+			try {
+				const [files, didHitLimit] = await promiseTimeout(
+					listFiles(absolutePath, recursive, 200),
+					timeoutMs,
+					`List files operation timed out after ${timeoutMs / 1000} seconds`,
+				)
+				const { showRooIgnoredFiles = true } = (await cline.providerRef.deref()?.getState()) ?? {}
 
-			const completeMessage = JSON.stringify({ ...sharedMessageProps, content: result } satisfies ClineSayTool)
-			const didApprove = await askApproval("tool", completeMessage)
+				const result = formatResponse.formatFilesList(
+					absolutePath,
+					files,
+					didHitLimit,
+					cline.rooIgnoreController,
+					showRooIgnoredFiles,
+				)
 
-			if (!didApprove) {
-				return
+				const completeMessage = JSON.stringify({
+					...sharedMessageProps,
+					content: result,
+				} satisfies ClineSayTool)
+				const didApprove = await askApproval("tool", completeMessage)
+
+				if (!didApprove) {
+					return
+				}
+
+				pushToolResult(result)
+			} catch (error) {
+				if (error instanceof Error && error.message.includes("timed out")) {
+					// Handle timeout specifically
+					const timeoutMessage = `Operation timed out when listing files in directory '${relDirPath}'. The directory might contain too many files or the operation is taking longer than ${timeoutMs / 1000} seconds.`
+					await cline.say("error", timeoutMessage)
+					pushToolResult(formatResponse.toolError(timeoutMessage))
+					return
+				}
+
+				// Re-throw for the outer catch block to handle other errors
+				throw error
 			}
-
-			pushToolResult(result)
 		}
 	} catch (error) {
 		await handleError("listing files", error)

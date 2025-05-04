@@ -7,11 +7,16 @@ import { Cline } from "../Cline"
 import { ToolUse, RemoveClosingTag } from "../../shared/tools"
 import { formatResponse } from "../prompts/responses"
 import { AskApproval, HandleError, PushToolResult } from "../../shared/tools"
+import { promiseTimeout } from "../../utils/promise-utils"
 import { fileExistsAtPath } from "../../utils/fs"
 import { addLineNumbers } from "../../integrations/misc/extract-text"
 import { RecordSource } from "../context-tracking/FileContextTrackerTypes"
 import { telemetryService } from "../../services/telemetry/TelemetryService"
 import { unescapeHtmlEntities } from "../../utils/text-normalization"
+
+export interface ApplyDiffToolOptions {
+	timeoutMs?: number
+}
 
 export async function applyDiffTool(
 	cline: Cline,
@@ -20,7 +25,9 @@ export async function applyDiffTool(
 	handleError: HandleError,
 	pushToolResult: PushToolResult,
 	removeClosingTag: RemoveClosingTag,
+	options: ApplyDiffToolOptions = {},
 ) {
+	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
 	const relPath: string | undefined = block.params.path
 	let diffContent: string | undefined = block.params.diff
 
@@ -73,7 +80,23 @@ export async function applyDiffTool(
 			}
 
 			const absolutePath = path.resolve(cline.cwd, relPath)
-			const fileExists = await fileExistsAtPath(absolutePath)
+			let fileExists
+			try {
+				fileExists = await promiseTimeout(
+					fileExistsAtPath(absolutePath),
+					timeoutMs,
+					`Check if file exists operation timed out after ${timeoutMs / 1000} seconds`,
+				)
+			} catch (error) {
+				if (error instanceof Error && error.message.includes("timed out")) {
+					// Handle timeout specifically
+					const timeoutMessage = `Operation timed out when checking if file exists at '${relPath}'. The operation is taking longer than ${timeoutMs / 1000} seconds.`
+					await cline.say("error", timeoutMessage)
+					pushToolResult(formatResponse.toolError(timeoutMessage))
+					return
+				}
+				throw error // Re-throw for the outer catch block to handle other errors
+			}
 
 			if (!fileExists) {
 				cline.consecutiveMistakeCount++
@@ -84,16 +107,49 @@ export async function applyDiffTool(
 				return
 			}
 
-			const originalContent = await fs.readFile(absolutePath, "utf-8")
+			let originalContent
+			try {
+				originalContent = await promiseTimeout(
+					fs.readFile(absolutePath, "utf-8"),
+					timeoutMs,
+					`File read operation timed out after ${timeoutMs / 1000} seconds`,
+				)
+			} catch (error) {
+				if (error instanceof Error && error.message.includes("timed out")) {
+					const timeoutMessage = `Operation timed out when reading file '${relPath}'. The file might be too large or the operation is taking longer than ${timeoutMs / 1000} seconds.`
+					await cline.say("error", timeoutMessage)
+					pushToolResult(formatResponse.toolError(timeoutMessage))
+					return
+				}
+				throw error
+			}
 
 			// Apply the diff to the original content
-			const diffResult = (await cline.diffStrategy?.applyDiff(
-				originalContent,
-				diffContent,
-				parseInt(block.params.start_line ?? ""),
-			)) ?? {
-				success: false,
-				error: "No diff strategy available",
+			let diffResult
+			try {
+				if (cline.diffStrategy) {
+					// Apply timeout only when diffStrategy exists
+					diffResult = await promiseTimeout(
+						cline.diffStrategy.applyDiff(
+							originalContent,
+							diffContent,
+							parseInt(block.params.start_line ?? ""),
+						),
+						timeoutMs,
+						`Apply diff operation timed out after ${timeoutMs / 1000} seconds`,
+					)
+				} else {
+					// No diffStrategy available, return error immediately
+					diffResult = { success: false, error: "No diff strategy available" }
+				}
+			} catch (error) {
+				if (error instanceof Error && error.message.includes("timed out")) {
+					const timeoutMessage = `Operation timed out when applying diff to file '${relPath}'. The operation is taking longer than ${timeoutMs / 1000} seconds.`
+					await cline.say("error", timeoutMessage)
+					pushToolResult(formatResponse.toolError(timeoutMessage))
+					return
+				}
+				throw error
 			}
 
 			if (!diffResult.success) {
@@ -136,6 +192,16 @@ export async function applyDiffTool(
 			cline.consecutiveMistakeCount = 0
 			cline.consecutiveMistakeCountForApplyDiff.delete(relPath)
 
+			// At this point, diffResult.success must be true due to the prior check
+			// Add type guard to satisfy TypeScript
+			if (!diffResult.success || !diffResult.content) {
+				// This shouldn't happen due to the earlier check, but TypeScript needs this
+				const typeError = `Unexpected state: diffResult.success is true but content is missing`
+				await cline.say("error", typeError)
+				pushToolResult(formatResponse.toolError(typeError))
+				return
+			}
+
 			// Show diff view before asking for approval
 			cline.diffViewProvider.editType = "modify"
 			await cline.diffViewProvider.open(relPath)
@@ -160,7 +226,11 @@ export async function applyDiffTool(
 				return
 			}
 
-			const { newProblemsMessage, userEdits, finalContent } = await cline.diffViewProvider.saveChanges()
+			const { newProblemsMessage, userEdits, finalContent } = await promiseTimeout(
+				cline.diffViewProvider.saveChanges(),
+				timeoutMs,
+				`Saving changes operation timed out after ${timeoutMs / 1000} seconds`,
+			)
 
 			// Track file edit operation
 			if (relPath) {
