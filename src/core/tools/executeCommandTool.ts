@@ -1,6 +1,5 @@
 import fs from "fs/promises"
 import * as path from "path"
-
 import delay from "delay"
 
 import { Cline } from "../Cline"
@@ -14,6 +13,31 @@ import { TerminalRegistry } from "../../integrations/terminal/TerminalRegistry"
 import { Terminal } from "../../integrations/terminal/Terminal"
 
 class ShellIntegrationError extends Error {}
+
+// Helper function to detect interactive prompts in output
+function detectInteractivePrompt(output: string): boolean {
+	// Common interactive prompts
+	const interactivePatterns = [
+		/password:/i,
+		/\[y\/n\]/i,
+		/\(y\/n\)/i,
+		/continue\?/i,
+		/\(yes\/no\)/i,
+		/press any key to continue/i,
+		/proceed\?/i,
+	]
+
+	return interactivePatterns.some((pattern) => pattern.test(output))
+}
+
+export type ExecuteCommandOptions = {
+	executionId: string
+	command: string
+	customCwd?: string
+	terminalShellIntegrationDisabled?: boolean
+	terminalOutputLineLimit?: number
+	commandTimeoutMs?: number
+}
 
 export async function executeCommandTool(
 	cline: Cline,
@@ -66,6 +90,7 @@ export async function executeCommandTool(
 				customCwd,
 				terminalShellIntegrationDisabled,
 				terminalOutputLineLimit,
+				commandTimeoutMs: 30 * 1000, // Default timeout: 30 seconds
 			}
 
 			try {
@@ -105,14 +130,6 @@ export async function executeCommandTool(
 	}
 }
 
-export type ExecuteCommandOptions = {
-	executionId: string
-	command: string
-	customCwd?: string
-	terminalShellIntegrationDisabled?: boolean
-	terminalOutputLineLimit?: number
-}
-
 export async function executeCommand(
 	cline: Cline,
 	{
@@ -121,6 +138,7 @@ export async function executeCommand(
 		customCwd,
 		terminalShellIntegrationDisabled = false,
 		terminalOutputLineLimit = 500,
+		commandTimeoutMs = 5 * 60 * 1000, // Default timeout: 5 minutes
 	}: ExecuteCommandOptions,
 ): Promise<[boolean, ToolResponse]> {
 	let workingDir: string
@@ -145,28 +163,68 @@ export async function executeCommand(
 	let result: string = ""
 	let exitDetails: ExitCodeDetails | undefined
 	let shellIntegrationError: string | undefined
+	let lastActivityTime = Date.now()
+	let isInactive = false
+	const inactivityTimeoutMs = 60 * 1000 // 1 minute
 
 	const terminalProvider = terminalShellIntegrationDisabled ? "execa" : "vscode"
 	const clineProvider = await cline.providerRef.deref()
 
 	const callbacks: RooTerminalCallbacks = {
 		onLine: async (output: string, process: RooTerminalProcess) => {
+			// Update activity timestamp whenever we get output
+			lastActivityTime = Date.now()
+			isInactive = false
+
 			const status: CommandExecutionStatus = { executionId, status: "output", output }
 			clineProvider?.postMessageToWebview({ type: "commandExecutionStatus", text: JSON.stringify(status) })
+
+			// Check if this output appears to be waiting for user input
+			const isInteractive = detectInteractivePrompt(output)
 
 			if (runInBackground) {
 				return
 			}
 
-			try {
-				const { response, text, images } = await cline.ask("command_output", "")
-				runInBackground = true
+			if (isInteractive) {
+				try {
+					// For interactive prompts, add a note to the output to inform the user
+					const interactiveMessage = `\n[Detected interactive prompt: "${output.trim()}"]\n`
+					result += interactiveMessage
 
-				if (response === "messageResponse") {
-					message = { text, images }
+					// We can't use a custom status, but we can log it
+					console.log(`[executeCommand] Detected interactive prompt for execution ${executionId}: ${output}`)
+
+					// Use the allowed command_output type instead
+					const { response, text, images } = await cline.ask(
+						"command_output",
+						`The command is waiting for input: "${output.trim()}". Please provide a response or type "continue" to proceed without input.`,
+					)
+
+					if (response === "messageResponse") {
+						message = { text, images }
+						// Can't pass text to continue, so just continue and note the desired input
+						result += `\n[User provided input: "${text}"]\n`
+						process.continue()
+					} else {
+						runInBackground = true
+						process.continue()
+					}
+				} catch (_error) {
+					// If we fail to get user input, just continue
 					process.continue()
 				}
-			} catch (_error) {}
+			} else {
+				try {
+					const { response, text, images } = await cline.ask("command_output", "")
+					runInBackground = true
+
+					if (response === "messageResponse") {
+						message = { text, images }
+						process.continue()
+					}
+				} catch (_error) {}
+			}
 		},
 		onCompleted: (output: string | undefined) => {
 			result = Terminal.compressTerminalOutput(output ?? "", terminalOutputLineLimit)
@@ -206,8 +264,70 @@ export async function executeCommand(
 	const process = terminal.runCommand(command, callbacks)
 	cline.terminalProcess = process
 
-	await process
-	cline.terminalProcess = undefined
+	// Set up inactivity monitoring
+	const statusCheckInterval = setInterval(() => {
+		const inactiveTime = Date.now() - lastActivityTime
+
+		if (inactiveTime > inactivityTimeoutMs && !isInactive) {
+			isInactive = true
+
+			// Use allowed status type "output" instead of custom type
+			const status: CommandExecutionStatus = {
+				executionId,
+				status: "output",
+				output: `[Process has been inactive for ${Math.floor(inactiveTime / 1000)} seconds]`,
+			}
+			clineProvider?.postMessageToWebview({
+				type: "commandExecutionStatus",
+				text: JSON.stringify(status),
+			})
+
+			// Notify about the inactive process in the result
+			result += `\n[Process has been inactive for ${Math.floor(inactiveTime / 1000)} seconds]\n`
+		}
+	}, 10000) // Check every 10 seconds
+
+	// Implement timeout without external util
+	let timeoutId: NodeJS.Timeout | undefined
+
+	try {
+		// Create a promise that resolves when the process completes
+		const timeoutPromise = new Promise<void>((_, reject) => {
+			timeoutId = setTimeout(() => {
+				reject(new Error("Command execution timed out"))
+			}, commandTimeoutMs)
+		})
+
+		// Wait for either the process to complete or the timeout to expire
+		await Promise.race([process, timeoutPromise])
+	} catch (error) {
+		// Handle timeout or other errors
+		if (error.message === "Command execution timed out") {
+			console.log(`[executeCommand] Execution timed out after ${commandTimeoutMs / 1000} seconds: ${executionId}`)
+
+			// Can't terminate directly, but we can record the timeout in results
+			result += `\n[Command execution timed out after ${commandTimeoutMs / 1000} seconds]\n`
+
+			// Notify about timeout using allowed status type
+			const status: CommandExecutionStatus = {
+				executionId,
+				status: "output",
+				output: `[Command execution timed out after ${commandTimeoutMs / 1000} seconds]`,
+			}
+			clineProvider?.postMessageToWebview({
+				type: "commandExecutionStatus",
+				text: JSON.stringify(status),
+			})
+		} else {
+			throw error
+		}
+	} finally {
+		if (timeoutId) {
+			clearTimeout(timeoutId)
+		}
+		clearInterval(statusCheckInterval)
+		cline.terminalProcess = undefined
+	}
 
 	if (shellIntegrationError) {
 		throw new ShellIntegrationError(shellIntegrationError)
