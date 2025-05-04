@@ -138,7 +138,7 @@ export async function executeCommand(
 		customCwd,
 		terminalShellIntegrationDisabled = false,
 		terminalOutputLineLimit = 500,
-		commandTimeoutMs = 5 * 60 * 1000, // Default timeout: 5 minutes
+		commandTimeoutMs = 30 * 1000, // Default timeout: 30 seconds
 	}: ExecuteCommandOptions,
 ): Promise<[boolean, ToolResponse]> {
 	let workingDir: string
