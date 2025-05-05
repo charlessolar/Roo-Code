@@ -90,7 +90,7 @@ export async function executeCommandTool(
 				customCwd,
 				terminalShellIntegrationDisabled,
 				terminalOutputLineLimit,
-				commandTimeoutMs: 30 * 1000, // Default timeout: 30 seconds
+				commandTimeoutMs: 120 * 1000, // Default timeout: 120 seconds
 			}
 
 			try {
@@ -138,7 +138,7 @@ export async function executeCommand(
 		customCwd,
 		terminalShellIntegrationDisabled = false,
 		terminalOutputLineLimit = 500,
-		commandTimeoutMs = 30 * 1000, // Default timeout: 30 seconds
+		commandTimeoutMs = 120 * 1000, // Default timeout: 120 seconds
 	}: ExecuteCommandOptions,
 ): Promise<[boolean, ToolResponse]> {
 	let workingDir: string

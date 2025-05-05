@@ -37,7 +37,7 @@ export async function listFilesTool(
 	removeClosingTag: RemoveClosingTag,
 	options: ListFilesToolOptions = {},
 ) {
-	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
+	const { timeoutMs = 120 * 1000 } = options // Default timeout: 120 seconds
 	const relDirPath: string | undefined = block.params.path
 	const recursiveRaw: string | undefined = block.params.recursive
 	const recursive = recursiveRaw?.toLowerCase() === "true"

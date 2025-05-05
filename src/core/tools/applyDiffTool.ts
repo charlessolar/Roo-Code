@@ -27,7 +27,7 @@ export async function applyDiffTool(
 	removeClosingTag: RemoveClosingTag,
 	options: ApplyDiffToolOptions = {},
 ) {
-	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
+	const { timeoutMs = 120 * 1000 } = options // Default timeout: 120 seconds
 	const relPath: string | undefined = block.params.path
 	let diffContent: string | undefined = block.params.diff
 

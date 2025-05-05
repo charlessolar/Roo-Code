@@ -28,7 +28,7 @@ export async function readFileTool(
 	removeClosingTag: RemoveClosingTag,
 	options: ReadFileToolOptions = {},
 ) {
-	const { timeoutMs = 30 * 1000 } = options // Default timeout: 30 seconds
+	const { timeoutMs = 120 * 1000 } = options // Default timeout: 120 seconds
 	const relPath: string | undefined = block.params.path
 	const startLineStr: string | undefined = block.params.start_line
 	const endLineStr: string | undefined = block.params.end_line
