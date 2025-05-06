@@ -1877,6 +1877,14 @@ export class Cline extends EventEmitter<ClineEvents> {
 			throw new Error(`[Cline#recursivelyMakeClineRequests] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 
+		// Check if cost limit has been exceeded
+		const { totalCost } = getApiMetrics(this.clineMessages)
+		if (totalCost !== undefined && totalCost >= 10) {
+			await this.say("error", "Task aborted: Cost limit of $10 has been exceeded.")
+			this.abortTask()
+			return true // End the task loop
+		}
+
 		if (this.consecutiveMistakeCount >= this.consecutiveMistakeLimit) {
 			const { response, text, images } = await this.ask(
 				"mistake_limit_reached",
@@ -2070,6 +2078,16 @@ export class Cline extends EventEmitter<ClineEvents> {
 							cacheWriteTokens += chunk.cacheWriteTokens ?? 0
 							cacheReadTokens += chunk.cacheReadTokens ?? 0
 							totalCost = chunk.totalCost
+
+							// Check if cost limit has been exceeded during streaming
+							if (totalCost !== undefined && totalCost >= 10) {
+								await this.say(
+									"error",
+									"Task aborted: Cost limit of $10 has been exceeded during streaming.",
+								)
+								this.abortTask()
+								break // Stop processing further chunks
+							}
 							break
 						case "text":
 							assistantMessage += chunk.text
